@@ -6,7 +6,6 @@ Restore enforces original case path for audit trail integrity.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -15,7 +14,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from vhir_cli.case_io import get_case_dir, load_case_meta
+from vhir_cli.case_io import get_case_dir, load_case_meta, sha256_file
 from vhir_cli.verification import VERIFICATION_DIR
 
 _SKIP_NAMES = {"__pycache__", ".DS_Store", "examiners.bak"}
@@ -447,18 +446,8 @@ def _verify_backup(backup_path: Path) -> bool:
 # ---------------------------------------------------------------------------
 # Helpers (public — used by MCP tool via import)
 # ---------------------------------------------------------------------------
-
-
-def sha256_file(path: Path) -> str:
-    """Compute SHA-256 hash of a file in 64KB chunks."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        while True:
-            chunk = f.read(65536)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
+# sha256_file lives in case_io and is re-exported here via the import above,
+# so `from vhir_cli.commands.backup import sha256_file` keeps working.
 
 
 def human_size(nbytes: int) -> str:

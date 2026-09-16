@@ -24,6 +24,7 @@ from vhir_cli.case_io import (
     hmac_text,
     load_audit_index,
     load_case_meta,
+    load_evidence_registry,
     load_findings,
     load_timeline,
     load_todos,
@@ -657,11 +658,10 @@ def _show_audit(case_dir: Path, limit: int) -> None:
 
 
 def _load_evidence(case_dir: Path) -> list[dict]:
-    reg_file = case_dir / "evidence.json"
-    if not reg_file.exists():
-        return []
     try:
-        data = json.loads(reg_file.read_text())
+        data = load_evidence_registry(case_dir)
+        if data is None:
+            return []
         return data.get("files", [])
     except json.JSONDecodeError as e:
         print(f"Warning: evidence registry is corrupt: {e}", file=sys.stderr)

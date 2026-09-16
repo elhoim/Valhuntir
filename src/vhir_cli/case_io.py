@@ -187,6 +187,24 @@ def load_findings(case_dir: Path) -> list[dict]:
         return []
 
 
+def load_evidence_registry(case_dir: Path) -> dict | None:
+    """Load the raw evidence.json registry, or None if it does not exist.
+
+    Unlike load_findings/load_timeline/load_todos this does NOT swallow parse
+    errors: a corrupt evidence registry must never be silently reported as an
+    empty registry to `vhir evidence verify`. Callers that want to tolerate
+    corruption catch (json.JSONDecodeError, OSError) themselves.
+
+    Raises:
+        json.JSONDecodeError: If the registry is not valid JSON.
+        OSError: If the registry can't be read.
+    """
+    reg_file = case_dir / "evidence.json"
+    if not reg_file.exists():
+        return None
+    return json.loads(reg_file.read_text())
+
+
 def save_findings(case_dir: Path, findings: list[dict]) -> None:
     """Save findings to case root."""
     _protected_write(
@@ -352,6 +370,24 @@ def find_draft_item(
 
 
 # --- Content hashing ---
+
+
+def sha256_file(path: Path, chunk_size: int = 65536) -> str:
+    """Compute SHA-256 hash of a file in 64KB chunks.
+
+    Single definition shared by evidence registration, evidence verification
+    and backup manifests — registering and verifying must never be able to
+    drift apart.
+    """
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
 
 HASH_EXCLUDE_KEYS = {
     "status",

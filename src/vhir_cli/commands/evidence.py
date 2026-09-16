@@ -16,7 +16,6 @@ Legacy aliases (backward compat):
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import stat
@@ -25,7 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from vhir_cli.approval_auth import require_tty_confirmation
-from vhir_cli.case_io import get_case_dir
+from vhir_cli.case_io import get_case_dir, load_evidence_registry, sha256_file
 
 
 def cmd_evidence(args, identity: dict) -> None:
@@ -192,18 +191,13 @@ def register_evidence_data(
             )
 
     # Compute SHA256
-    sha = hashlib.sha256()
-    with open(evidence_path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            sha.update(chunk)
-    file_hash = sha.hexdigest()
+    file_hash = sha256_file(evidence_path)
 
     # Record in evidence registry
     reg_file = case_dir / "evidence.json"
     try:
-        if reg_file.exists():
-            registry = json.loads(reg_file.read_text())
-        else:
+        registry = load_evidence_registry(case_dir)
+        if registry is None:
             registry = {"files": []}
     except (json.JSONDecodeError, OSError):
         registry = {"files": []}
@@ -312,12 +306,11 @@ def list_evidence_data(case_dir) -> dict:
         OSError: If registry can't be read.
     """
     case_dir = Path(case_dir)
-    reg_file = case_dir / "evidence.json"
+    registry = load_evidence_registry(case_dir)
 
-    if not reg_file.exists():
+    if registry is None:
         return {"evidence": [], "registry_exists": False}
 
-    registry = json.loads(reg_file.read_text())
     return {"evidence": registry.get("files", []), "registry_exists": True}
 
 
@@ -367,12 +360,11 @@ def verify_evidence_data(case_dir) -> dict:
         OSError: If registry can't be read.
     """
     case_dir = Path(case_dir)
-    reg_file = case_dir / "evidence.json"
+    registry = load_evidence_registry(case_dir)
 
-    if not reg_file.exists():
+    if registry is None:
         return {"results": [], "verified": 0, "modified": 0, "missing": 0, "errors": 0}
 
-    registry = json.loads(reg_file.read_text())
     files = registry.get("files", [])
     if not files:
         return {"results": [], "verified": 0, "modified": 0, "missing": 0, "errors": 0}
@@ -397,11 +389,7 @@ def verify_evidence_data(case_dir) -> dict:
             continue
 
         try:
-            sha = hashlib.sha256()
-            with open(path, "rb") as f:
-                for chunk in iter(lambda: f.read(8192), b""):
-                    sha.update(chunk)
-            actual_hash = sha.hexdigest()
+            actual_hash = sha256_file(path)
         except OSError as e:
             results.append(
                 {

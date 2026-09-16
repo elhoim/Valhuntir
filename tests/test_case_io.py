@@ -1,6 +1,8 @@
 """Tests for shared case I/O module."""
 
+import hashlib
 import json
+import os
 from argparse import Namespace
 from pathlib import Path
 
@@ -13,10 +15,12 @@ from vhir_cli.case_io import (
     export_bundle,
     get_case_dir,
     import_bundle,
+    load_evidence_registry,
     load_findings,
     load_timeline,
     save_findings,
     save_timeline,
+    sha256_file,
     verify_approval_integrity,
     write_approval_log,
 )
@@ -525,3 +529,54 @@ class TestCaseList:
         output = capsys.readouterr().out
         assert "INC-2026-001" in output
         assert "not-a-case" not in output
+
+
+class TestSha256File:
+    """One shared file hasher — register, verify and backup cannot drift."""
+
+    def test_matches_hashlib_across_chunk_boundaries(self, tmp_path):
+        data = os.urandom(65536 * 2 + 137)
+        target = tmp_path / "image.E01"
+        target.write_bytes(data)
+
+        assert sha256_file(target) == hashlib.sha256(data).hexdigest()
+
+    def test_chunk_size_does_not_change_digest(self, tmp_path):
+        data = os.urandom(65536 * 2 + 137)
+        target = tmp_path / "image.E01"
+        target.write_bytes(data)
+
+        assert sha256_file(target, chunk_size=8192) == sha256_file(target)
+
+    def test_empty_file(self, tmp_path):
+        target = tmp_path / "empty.bin"
+        target.write_bytes(b"")
+
+        assert sha256_file(target) == hashlib.sha256(b"").hexdigest()
+
+    def test_evidence_and_backup_use_the_shared_hasher(self):
+        from vhir_cli.commands import backup, evidence
+
+        assert evidence.sha256_file is sha256_file
+        assert backup.sha256_file is sha256_file
+
+
+class TestLoadEvidenceRegistry:
+    """Registry loader: missing is None, corruption propagates."""
+
+    def test_missing_registry_returns_none(self, tmp_path):
+        assert load_evidence_registry(tmp_path) is None
+
+    def test_returns_parsed_registry(self, tmp_path):
+        (tmp_path / "evidence.json").write_text(
+            json.dumps({"files": [{"path": "/tmp/a.bin", "sha256": "ab"}]})
+        )
+
+        registry = load_evidence_registry(tmp_path)
+        assert registry == {"files": [{"path": "/tmp/a.bin", "sha256": "ab"}]}
+
+    def test_corrupt_registry_propagates(self, tmp_path):
+        (tmp_path / "evidence.json").write_text("{not json")
+
+        with pytest.raises(json.JSONDecodeError):
+            load_evidence_registry(tmp_path)
