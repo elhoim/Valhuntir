@@ -369,6 +369,19 @@ def _interactive_review(
         print("Nothing to commit.")
         return
 
+    # Reload from disk to preserve any concurrent MCP writes. The reviewed items
+    # keep the content the examiner saw and dispositioned; everything else comes
+    # back from disk, including items staged during the review.
+    check_case_file_integrity(case_dir, "findings.json")
+    check_case_file_integrity(case_dir, "timeline.json")
+    reviewed = {
+        item["id"]: item
+        for item in all_items
+        if item["id"] in approvals or item["id"] in rejections
+    }
+    findings = [reviewed.get(f["id"], f) for f in load_findings(case_dir)]
+    timeline = [reviewed.get(t["id"], t) for t in load_timeline(case_dir)]
+
     now = datetime.now(timezone.utc).isoformat()
 
     # Apply approvals (in-memory)
