@@ -4,7 +4,46 @@ import ssl
 
 import yaml
 
-from vhir_cli.gateway import find_ca_cert, get_local_gateway_url, get_local_ssl_context
+from vhir_cli.gateway import (
+    find_ca_cert,
+    get_local_gateway_url,
+    get_local_ssl_context,
+    load_vhir_yaml,
+)
+
+
+class TestLoadVhirYaml:
+    def test_missing_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("vhir_cli.gateway.Path.home", lambda: tmp_path)
+        assert load_vhir_yaml("samba.yaml") == {}
+
+    def test_reads_mapping(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("vhir_cli.gateway.Path.home", lambda: tmp_path)
+        config_dir = tmp_path / ".vhir"
+        config_dir.mkdir()
+        (config_dir / "samba.yaml").write_text(
+            yaml.dump({"share_name": "case-evidence"})
+        )
+        assert load_vhir_yaml("samba.yaml") == {"share_name": "case-evidence"}
+
+    def test_empty_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("vhir_cli.gateway.Path.home", lambda: tmp_path)
+        config_dir = tmp_path / ".vhir"
+        config_dir.mkdir()
+        (config_dir / "samba.yaml").write_text("")
+        assert load_vhir_yaml("samba.yaml") == {}
+
+    def test_malformed_yaml(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("vhir_cli.gateway.Path.home", lambda: tmp_path)
+        config_dir = tmp_path / ".vhir"
+        config_dir.mkdir()
+        (config_dir / "samba.yaml").write_text("{{invalid yaml")
+        assert load_vhir_yaml("samba.yaml") == {}
+
+    def test_directory_is_not_a_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("vhir_cli.gateway.Path.home", lambda: tmp_path)
+        (tmp_path / ".vhir" / "samba.yaml").mkdir(parents=True)
+        assert load_vhir_yaml("samba.yaml") == {}
 
 
 class TestGetLocalGatewayUrl:

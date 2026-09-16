@@ -16,7 +16,6 @@ import ssl
 import sys
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 
 def cmd_service(args, identity: dict) -> None:
@@ -41,7 +40,11 @@ def _resolve_gateway(args) -> tuple[str, str | None, ssl.SSLContext | None]:
     """
     import os
 
-    from vhir_cli.gateway import get_local_gateway_url, get_local_ssl_context
+    from vhir_cli.gateway import (
+        get_local_gateway_url,
+        get_local_ssl_context,
+        load_vhir_yaml,
+    )
 
     url = getattr(args, "gateway", None)
     token = getattr(args, "token", None)
@@ -54,7 +57,7 @@ def _resolve_gateway(args) -> tuple[str, str | None, ssl.SSLContext | None]:
     # Read token from config files if not already set
     if not token:
         for config_name in ("gateway.yaml", "config.yaml"):
-            config = _load_config(config_name)
+            config = load_vhir_yaml(config_name)
             if not config:
                 continue
             api_keys = config.get("api_keys", {})
@@ -76,19 +79,6 @@ def _resolve_gateway(args) -> tuple[str, str | None, ssl.SSLContext | None]:
             file=sys.stderr,
         )
     return url.rstrip("/"), token if token else None, ssl_ctx
-
-
-def _load_config(filename: str = "config.yaml") -> dict:
-    """Load ~/.vhir/{filename}, returning empty dict on failure."""
-    config_file = Path.home() / ".vhir" / filename
-    if not config_file.is_file():
-        return {}
-    try:
-        import yaml
-
-        return yaml.safe_load(config_file.read_text()) or {}
-    except Exception:
-        return {}
 
 
 def _api_request(

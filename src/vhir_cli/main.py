@@ -950,32 +950,21 @@ def _set_case_wintools_permissions(case_dir: Path) -> None:
 
 def _wintools_configured() -> bool:
     """Check if Samba sharing is set up (samba.yaml exists with share_name)."""
-    from pathlib import Path
+    from vhir_cli.gateway import load_vhir_yaml
 
-    import yaml
-
-    p = Path.home() / ".vhir" / "samba.yaml"
-    if not p.is_file():
-        return False
     try:
-        doc = yaml.safe_load(p.read_text())
-        return bool(doc and doc.get("share_name"))
+        return bool(load_vhir_yaml("samba.yaml").get("share_name"))
     except Exception:
         return False
 
 
 def _gateway_has_wintools() -> bool:
     """Check if gateway.yaml has a wintools-mcp backend."""
-    from pathlib import Path
+    from vhir_cli.gateway import load_vhir_yaml
 
-    import yaml
-
-    p = Path.home() / ".vhir" / "gateway.yaml"
-    if not p.is_file():
-        return False
     try:
-        doc = yaml.safe_load(p.read_text())
-        return bool(doc and doc.get("backends", {}).get("wintools-mcp"))
+        backends = load_vhir_yaml("gateway.yaml").get("backends", {})
+        return bool(backends.get("wintools-mcp"))
     except Exception:
         return False
 

@@ -1,5 +1,8 @@
 """Shared helpers for talking to the local Valhuntir gateway.
 
+Also owns load_vhir_yaml(), the shared ~/.vhir/<file>.yaml reader used
+by the commands that probe optional config files.
+
 Reads ~/.vhir/gateway.yaml for host, port, and TLS config.
 Always uses 127.0.0.1 for local access (even if host is 0.0.0.0).
 
@@ -14,16 +17,15 @@ import ssl
 from pathlib import Path
 
 
-def _read_gateway_config() -> dict:
-    """Load ~/.vhir/gateway.yaml, returning empty dict on failure."""
-    import yaml
-
-    gateway_config = Path.home() / ".vhir" / "gateway.yaml"
-    if not gateway_config.exists():
+def load_vhir_yaml(filename: str) -> dict:
+    """Load ~/.vhir/{filename}, returning empty dict on failure."""
+    config_file = Path.home() / ".vhir" / filename
+    if not config_file.is_file():
         return {}
     try:
-        with open(gateway_config) as f:
-            return yaml.safe_load(f) or {}
+        import yaml
+
+        return yaml.safe_load(config_file.read_text()) or {}
     except Exception:
         return {}
 
@@ -34,7 +36,7 @@ def get_local_gateway_url() -> str:
     Always returns http(s)://127.0.0.1:{port}. Checks gateway.tls.certfile
     to determine scheme. Falls back to http://127.0.0.1:4508.
     """
-    config = _read_gateway_config()
+    config = load_vhir_yaml("gateway.yaml")
     gw = config.get("gateway", {})
     if isinstance(gw, dict):
         port = gw.get("port", 4508)
@@ -52,7 +54,7 @@ def get_local_ssl_context() -> ssl.SSLContext | None:
       - Otherwise returns a permissive context (self-signed cert support)
     If no TLS, returns None (caller should not pass context to urlopen).
     """
-    config = _read_gateway_config()
+    config = load_vhir_yaml("gateway.yaml")
     gw = config.get("gateway", {})
     if not isinstance(gw, dict):
         return None
