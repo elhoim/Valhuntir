@@ -864,6 +864,35 @@ _DIM = "\033[2m"
 _RESET = "\033[0m"
 
 
+def _apply_delta_modifications(
+    item: dict, entry: dict, identity: dict, now: str, skipped: list
+) -> bool:
+    """Apply a delta entry's modifications, unless a field changed since review."""
+    item_id = entry.get("id", "")
+    modifications = entry.get("modifications", {})
+
+    # Verify modification originals match current values
+    for field, mod in modifications.items():
+        current_val = item.get(field)
+        original_val = mod.get("original")
+        if current_val != original_val:
+            skipped.append((item_id, f"field '{field}' changed since review"))
+            return False
+
+    # Apply modifications (only editable fields)
+    for field, mod in modifications.items():
+        if field not in _DELTA_EDITABLE_FIELDS:
+            continue
+        item[field] = mod.get("modified")
+        item.setdefault("examiner_modifications", {})[field] = {
+            "original": mod.get("original"),
+            "modified": mod.get("modified"),
+            "modified_by": identity["examiner"],
+            "modified_at": now,
+        }
+    return True
+
+
 def _render_terminal_diff(item: dict, delta_entry: dict) -> None:
     """Print a terminal diff for a single delta item."""
     item_id = delta_entry.get("id", "?")
@@ -1127,33 +1156,8 @@ def _review_mode(case_dir: Path, identity: dict, config_path: Path) -> None:
             skipped.append((item_id, "not found"))
             continue
 
-        modifications = entry.get("modifications", {})
-
-        # Verify modification originals match current values
-        mod_conflict = False
-        for field, mod in modifications.items():
-            current_val = item.get(field)
-            original_val = mod.get("original")
-            if current_val != original_val:
-                skipped.append((item_id, f"field '{field}' changed since review"))
-                mod_conflict = True
-                break
-
-        if mod_conflict:
+        if not _apply_delta_modifications(item, entry, identity, now, skipped):
             continue
-
-        # Apply modifications (only editable fields)
-        if modifications:
-            for field, mod in modifications.items():
-                if field not in _DELTA_EDITABLE_FIELDS:
-                    continue
-                item[field] = mod.get("modified")
-                item.setdefault("examiner_modifications", {})[field] = {
-                    "original": mod.get("original"),
-                    "modified": mod.get("modified"),
-                    "modified_by": identity["examiner"],
-                    "modified_at": now,
-                }
 
         # Apply note
         note = entry.get("note")
@@ -1181,33 +1185,11 @@ def _review_mode(case_dir: Path, identity: dict, config_path: Path) -> None:
             skipped.append((item_id, "not found"))
             continue
 
-        modifications = entry.get("modifications", {})
-        if not modifications:
+        if not entry.get("modifications"):
             continue
 
-        # Verify originals match
-        mod_conflict = False
-        for field, mod in modifications.items():
-            current_val = item.get(field)
-            original_val = mod.get("original")
-            if current_val != original_val:
-                skipped.append((item_id, f"field '{field}' changed since review"))
-                mod_conflict = True
-                break
-        if mod_conflict:
+        if not _apply_delta_modifications(item, entry, identity, now, skipped):
             continue
-
-        # Apply modifications only
-        for field, mod in modifications.items():
-            if field not in _DELTA_EDITABLE_FIELDS:
-                continue
-            item[field] = mod.get("modified")
-            item.setdefault("examiner_modifications", {})[field] = {
-                "original": mod.get("original"),
-                "modified": mod.get("modified"),
-                "modified_by": identity["examiner"],
-                "modified_at": now,
-            }
 
         # Recompute hash
         new_hash = compute_content_hash(item)
