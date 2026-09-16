@@ -237,8 +237,12 @@ def create_backup_data(
     marker = backup_dir / ".backup-in-progress"
     marker.touch()
 
-    # Scan case directory
-    scan = scan_case_dir(case_dir)
+    # Scan case directory (excluded categories are never walked)
+    scan = scan_case_dir(
+        case_dir,
+        include_evidence=include_evidence,
+        include_extractions=include_extractions,
+    )
 
     # Build file list
     files_to_copy = list(scan["case_data"])
@@ -472,8 +476,17 @@ def human_size(nbytes: int) -> str:
     return f"{nbytes} B"
 
 
-def scan_case_dir(case_dir: Path) -> dict:
+def scan_case_dir(
+    case_dir: Path,
+    *,
+    include_evidence: bool = True,
+    include_extractions: bool = True,
+) -> dict:
     """Scan case directory and categorize files.
+
+    Excluded categories are pruned from the walk rather than collected and
+    discarded — a backup that skips evidence/ must not pay to stat every file
+    in it. Their lists come back empty.
 
     Returns dict with keys: case_data, evidence, extractions, symlinks.
     Each list contains (relative_path, absolute_path, size) tuples.
@@ -488,6 +501,14 @@ def scan_case_dir(case_dir: Path) -> dict:
         dirs[:] = [d for d in dirs if d not in _SKIP_NAMES]
 
         root_path = Path(root)
+        if root_path == case_dir:
+            # Files are categorized by their top-level component, so prune only
+            # here — a nested reports/evidence/ is case data and must be kept.
+            if not include_evidence:
+                dirs[:] = [d for d in dirs if d != "evidence"]
+            if not include_extractions:
+                dirs[:] = [d for d in dirs if d != "extractions"]
+
         for fname in files:
             if fname in _SKIP_NAMES:
                 continue
