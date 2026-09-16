@@ -16,7 +16,7 @@ from pathlib import Path
 import argcomplete
 
 from vhir_cli import __version__
-from vhir_cli.case_io import DEFAULT_CASES_DIR, CaseError
+from vhir_cli.case_io import CaseError, cases_root
 from vhir_cli.commands.approve import cmd_approve
 from vhir_cli.commands.audit_cmd import cmd_audit
 from vhir_cli.commands.backup import cmd_backup, cmd_restore
@@ -724,10 +724,7 @@ def _case_list_data(cases_dir=None) -> dict:
 
     import yaml
 
-    if cases_dir is None:
-        cases_dir = Path(os.environ.get("VHIR_CASES_DIR", DEFAULT_CASES_DIR))
-    else:
-        cases_dir = Path(cases_dir)
+    cases_dir = cases_root(cases_dir)
 
     if not cases_dir.is_dir():
         return {"cases": []}
@@ -771,10 +768,7 @@ def _case_list_data(cases_dir=None) -> dict:
 
 def _case_list(args, identity: dict) -> None:
     """CLI wrapper — prints formatted case list."""
-    import os
-    from pathlib import Path
-
-    cases_dir = Path(os.environ.get("VHIR_CASES_DIR", DEFAULT_CASES_DIR))
+    cases_dir = cases_root()
     if not cases_dir.is_dir():
         print(f"No cases directory found: {cases_dir}")
         return
@@ -820,10 +814,7 @@ def _case_init_data(
 
     from vhir_cli.case_io import _atomic_write
 
-    if cases_dir is None:
-        cases_dir = Path(os.environ.get("VHIR_CASES_DIR", DEFAULT_CASES_DIR))
-    else:
-        cases_dir = Path(cases_dir)
+    cases_dir = cases_root(cases_dir)
 
     if not examiner:
         raise ValueError("Cannot initialize case: examiner identity is empty.")
@@ -982,9 +973,6 @@ def _gateway_has_wintools() -> bool:
 
 def _case_init(args, identity: dict) -> None:
     """CLI wrapper — creates case and prints summary."""
-    import os
-    from pathlib import Path
-
     name = args.name
     case_id = getattr(args, "case_id", None)
     description = getattr(args, "description", "")
@@ -1009,7 +997,7 @@ def _case_init(args, identity: dict) -> None:
             id_input = input(f"Case ID [{default_id}]: ").strip()
             case_id = id_input if id_input else default_id
 
-            default_dir = os.environ.get("VHIR_CASES_DIR", str(Path.home() / "cases"))
+            default_dir = str(cases_root())
             dir_input = input(f"Cases directory [{default_dir}]: ").strip()
             cases_dir = dir_input if dir_input else default_dir
 
@@ -1088,15 +1076,11 @@ def _case_activate_data(case_id: str, cases_dir=None) -> dict:
         ValueError: If case_id is invalid or case not found.
         OSError: If active case pointer write fails.
     """
-    import os
     from pathlib import Path
 
     from vhir_cli.case_io import _atomic_write
 
-    if cases_dir is None:
-        cases_dir = Path(os.environ.get("VHIR_CASES_DIR", DEFAULT_CASES_DIR))
-    else:
-        cases_dir = Path(cases_dir)
+    cases_dir = cases_root(cases_dir)
 
     # Inline validation (avoids _validate_case_id's sys.exit)
     if not case_id or ".." in case_id or "/" in case_id or "\\" in case_id:
@@ -1162,8 +1146,7 @@ def _case_close(args, identity: dict) -> None:
 
     case_id = args.case_id
     _validate_case_id(case_id)
-    cases_dir = Path(os.environ.get("VHIR_CASES_DIR", DEFAULT_CASES_DIR))
-    case_dir = cases_dir / case_id
+    case_dir = cases_root() / case_id
 
     if not case_dir.exists():
         print(f"Case not found: {case_id}", file=sys.stderr)
@@ -1230,7 +1213,6 @@ def _case_close(args, identity: dict) -> None:
 
 def _case_reopen(args, identity: dict) -> None:
     """Reopen a closed case."""
-    import os
     from pathlib import Path
 
     import yaml
@@ -1239,8 +1221,7 @@ def _case_reopen(args, identity: dict) -> None:
 
     case_id = args.case_id
     _validate_case_id(case_id)
-    cases_dir = Path(os.environ.get("VHIR_CASES_DIR", DEFAULT_CASES_DIR))
-    case_dir = cases_dir / case_id
+    case_dir = cases_root() / case_id
 
     if not case_dir.exists():
         print(f"Case not found: {case_id}", file=sys.stderr)

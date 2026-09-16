@@ -8,7 +8,9 @@ import pytest
 import yaml
 
 from vhir_cli.case_io import (
+    DEFAULT_CASES_DIR,
     CaseError,
+    cases_root,
     compute_content_hash,
     export_bundle,
     get_case_dir,
@@ -28,6 +30,20 @@ def case_dir(tmp_path, monkeypatch):
     """Create a minimal flat case directory."""
     monkeypatch.setenv("VHIR_EXAMINER", "tester")
     return tmp_path
+
+
+class TestCasesRoot:
+    def test_from_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("VHIR_CASES_DIR", str(tmp_path))
+        assert cases_root() == tmp_path
+
+    def test_default_when_env_unset(self, monkeypatch):
+        monkeypatch.delenv("VHIR_CASES_DIR", raising=False)
+        assert cases_root() == Path(DEFAULT_CASES_DIR)
+
+    def test_override_wins_over_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("VHIR_CASES_DIR", str(tmp_path / "from-env"))
+        assert cases_root(str(tmp_path / "explicit")) == tmp_path / "explicit"
 
 
 class TestGetCaseDir:

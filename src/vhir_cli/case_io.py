@@ -25,6 +25,21 @@ class CaseError(Exception):
     """Raised when case directory cannot be resolved or validation fails."""
 
 
+def cases_root(override: str | Path | None = None) -> Path:
+    """Resolve the cases root directory.
+
+    Args:
+        override: Explicit cases root (e.g. --cases-dir). None uses
+            $VHIR_CASES_DIR, falling back to DEFAULT_CASES_DIR.
+
+    Returns:
+        Path to the cases root directory.
+    """
+    if override is not None:
+        return Path(override)
+    return Path(os.environ.get("VHIR_CASES_DIR", DEFAULT_CASES_DIR))
+
+
 def _validate_case_id(case_id: str) -> None:
     """Validate case_id to prevent path traversal."""
     if not case_id:
@@ -78,8 +93,7 @@ def get_case_dir(case_id: str | None = None) -> Path:
     """Resolve the active case directory."""
     if case_id:
         _validate_case_id(case_id)
-        cases_dir = Path(os.environ.get("VHIR_CASES_DIR", DEFAULT_CASES_DIR))
-        case_dir = cases_dir / case_id
+        case_dir = cases_root() / case_id
         if not case_dir.exists():
             raise CaseError(f"Case not found: {case_id}")
         return case_dir
@@ -101,8 +115,7 @@ def get_case_dir(case_id: str | None = None) -> Path:
         else:
             # Legacy: bare case ID — resolve via VHIR_CASES_DIR
             _validate_case_id(content)
-            cases_dir = Path(os.environ.get("VHIR_CASES_DIR", DEFAULT_CASES_DIR))
-            case_dir = cases_dir / content
+            case_dir = cases_root() / content
         if not case_dir.is_dir():
             raise CaseError(f"Case directory does not exist: {case_dir}")
         return case_dir
