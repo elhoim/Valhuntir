@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +24,7 @@ from vhir_cli.case_io import (
     load_timeline,
     load_todos,
 )
+from vhir_cli.iocs import extract_iocs_from_findings
 
 
 def cmd_report(args, identity: dict) -> None:
@@ -114,47 +114,7 @@ def _status_counts(items: list[dict]) -> dict[str, int]:
 
 def _extract_all_iocs(findings: list[dict]) -> dict[str, list[str]]:
     """Extract IOCs from findings, returning type -> sorted unique values."""
-    collected: dict[str, set[str]] = {}
-
-    for f in findings:
-        iocs_field = f.get("iocs")
-        if isinstance(iocs_field, dict):
-            for ioc_type, values in iocs_field.items():
-                if ioc_type not in collected:
-                    collected[ioc_type] = set()
-                if isinstance(values, list):
-                    collected[ioc_type].update(str(v) for v in values)
-                else:
-                    collected[ioc_type].add(str(values))
-        elif isinstance(iocs_field, list):
-            for ioc in iocs_field:
-                if isinstance(ioc, dict):
-                    ioc_type = ioc.get("type", "Unknown")
-                    ioc_value = ioc.get("value", "")
-                    if ioc_type not in collected:
-                        collected[ioc_type] = set()
-                    collected[ioc_type].add(str(ioc_value))
-
-        # Text extraction from observation/interpretation
-        text = f"{f.get('observation', '')} {f.get('interpretation', '')}"
-        ipv4_pattern = r"\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b"
-        for ip in re.findall(ipv4_pattern, text):
-            if not ip.startswith(("0.", "127.", "255.")):
-                collected.setdefault("IPv4", set()).add(ip)
-        for h in re.findall(r"\b[a-fA-F0-9]{64}\b", text):
-            collected.setdefault("SHA256", set()).add(h.lower())
-        for h in re.findall(r"(?<![a-fA-F0-9])[a-fA-F0-9]{40}(?![a-fA-F0-9])", text):
-            collected.setdefault("SHA1", set()).add(h.lower())
-        for h in re.findall(r"(?<![a-fA-F0-9])[a-fA-F0-9]{32}(?![a-fA-F0-9])", text):
-            collected.setdefault("MD5", set()).add(h.lower())
-        for fp in re.findall(r"[A-Z]:\\(?:[^\s,;]+)", text):
-            collected.setdefault("File", set()).add(fp)
-        for d in re.findall(
-            r"\b(?:[a-zA-Z0-9-]+\.)+(?:com|net|org|io|ru|cn|info|biz|xyz|top|cc|tk)\b",
-            text,
-        ):
-            collected.setdefault("Domain", set()).add(d.lower())
-
+    collected = extract_iocs_from_findings(findings)
     return {k: sorted(v) for k, v in sorted(collected.items())}
 
 
