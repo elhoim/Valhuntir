@@ -16,7 +16,6 @@ import getpass as getpass_mod
 import hashlib
 import json
 import os
-import re
 import secrets
 import subprocess
 import sys
@@ -34,15 +33,14 @@ from pathlib import Path
 
 import yaml
 
-PBKDF2_ITERATIONS = 600_000
+from vhir_cli.case_io import _EXAMINER_RE
+from vhir_cli.verification import PBKDF2_ITERATIONS
+
 _MAX_PASSWORD_ATTEMPTS = 3
 _LOCKOUT_SECONDS = 900  # 15 minutes
 _LOCKOUT_FILE = Path.home() / ".vhir" / ".password_lockout"
 _MIN_PASSWORD_LENGTH = 8
 _PASSWORDS_DIR = Path("/var/lib/vhir/passwords")
-
-
-_EXAMINER_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,19}$")
 
 
 def _validate_examiner_name(analyst: str) -> None:

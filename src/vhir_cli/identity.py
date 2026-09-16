@@ -17,8 +17,6 @@ from pathlib import Path
 
 import yaml
 
-_EXAMINER_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,19}$")
-
 
 def _sanitize_slug(raw: str) -> str:
     """Sanitize a raw string into a valid examiner slug.

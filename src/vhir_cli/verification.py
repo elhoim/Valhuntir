@@ -18,16 +18,23 @@ import os
 import shutil
 from pathlib import Path
 
+from vhir_cli.case_io import CaseError
+from vhir_cli.case_io import _validate_case_id as _case_io_validate_case_id
+
 VERIFICATION_DIR = Path("/var/lib/vhir/verification")
+# Shared with approval_auth's password hashing: the same iteration count backs
+# both the stored password hash and the HMAC key derived from that password.
+# Changing it is a breaking migration — existing password hashes and every
+# existing ledger HMAC were derived with the old count.
 PBKDF2_ITERATIONS = 600_000
 
 
 def _validate_case_id(case_id: str) -> None:
     """Validate case_id to prevent path traversal."""
-    if not case_id:
-        raise ValueError("Case ID cannot be empty")
-    if ".." in case_id or "/" in case_id or "\\" in case_id:
-        raise ValueError(f"Invalid case ID (path traversal characters): {case_id}")
+    try:
+        _case_io_validate_case_id(case_id)
+    except CaseError as exc:
+        raise ValueError(str(exc)) from None
 
 
 def derive_hmac_key(password: str, salt: bytes) -> bytes:
