@@ -1236,17 +1236,27 @@ def _review_mode(case_dir: Path, identity: dict, config_path: Path) -> None:
             item["manually_reviewed"] = True
         rejected_ids.append(item_id)
 
-    # Timeline approval coupling: auto-created events follow their finding
+    # Timeline approval coupling: auto-created events follow their finding.
+    # Couple only when the source finding was acted on in THIS invocation, and never
+    # override an event the examiner acted on directly in this delta. Keying off the
+    # persisted status instead would re-stamp previously coupled events on every run
+    # (destroying the original approval timestamp) and would flip an explicit
+    # rejection back to APPROVED. Matches _approve_specific/_interactive_review.
+    acted_approved = set(approved_ids)
+    acted_rejected = set(rejected_ids)
+    directly_acted = acted_approved | acted_rejected | set(edited_ids)
     for tl_event in timeline:
         auto_from = tl_event.get("auto_created_from", "")
         if not auto_from:
             continue
         if tl_event.get("examiner_modifications"):
             continue
+        if tl_event.get("id") in directly_acted:
+            continue
         source = item_by_id.get(auto_from)
         if not source:
             continue
-        if source.get("status") == "APPROVED":
+        if auto_from in acted_approved and source.get("status") == "APPROVED":
             tl_event["status"] = "APPROVED"
             tl_event["approved_at"] = now
             tl_event["approved_by"] = identity["examiner"]
@@ -1254,7 +1264,7 @@ def _review_mode(case_dir: Path, identity: dict, config_path: Path) -> None:
             new_hash = compute_content_hash(tl_event)
             tl_event["content_hash"] = new_hash
             approved_ids.append(tl_event["id"])
-        elif source.get("status") == "REJECTED":
+        elif auto_from in acted_rejected and source.get("status") == "REJECTED":
             tl_event["status"] = "REJECTED"
             tl_event["rejected_at"] = now
             tl_event["rejected_by"] = identity["examiner"]
