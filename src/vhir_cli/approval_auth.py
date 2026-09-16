@@ -108,6 +108,21 @@ def _maybe_migrate_pin_dir() -> None:
             pass
 
 
+def _legacy_entry(config: dict, analyst: str) -> dict | None:
+    """Return the analyst's entry from config.yaml (new key, then legacy key)."""
+    section = config.get("passwords", config.get("pins", {}))
+    return section.get(analyst) if isinstance(section, dict) else None
+
+
+def _strip_legacy_entry(config: dict, analyst: str) -> None:
+    """Delete the analyst from both config.yaml keys, dropping keys left empty."""
+    for key in ("passwords", "pins"):
+        if key in config and analyst in config[key]:
+            del config[key][analyst]
+            if not config[key]:
+                del config[key]
+
+
 def _maybe_migrate(config_path: Path, passwords_dir: Path, analyst: str) -> None:
     """Auto-migrate password from config.yaml to per-examiner file.
 
@@ -119,8 +134,7 @@ def _maybe_migrate(config_path: Path, passwords_dir: Path, analyst: str) -> None
         return
     config = _load_config(config_path)
     # Check both new key and legacy key
-    section = config.get("passwords", config.get("pins", {}))
-    entry = section.get(analyst) if isinstance(section, dict) else None
+    entry = _legacy_entry(config, analyst)
     if not entry or "hash" not in entry or "salt" not in entry:
         return
     try:
@@ -130,11 +144,7 @@ def _maybe_migrate(config_path: Path, passwords_dir: Path, analyst: str) -> None
     except OSError:
         return  # New location not writable — keep using old
     # Strip from config.yaml (both keys)
-    for key in ("passwords", "pins"):
-        if key in config and analyst in config[key]:
-            del config[key][analyst]
-            if not config[key]:
-                del config[key]
+    _strip_legacy_entry(config, analyst)
     _save_config(config_path, config)
 
 
@@ -237,13 +247,8 @@ def has_password(
         return True
     # Fallback: legacy config.yaml
     config = _load_config(config_path)
-    section = config.get("passwords", config.get("pins", {}))
-    return (
-        isinstance(section, dict)
-        and analyst in section
-        and "hash" in section[analyst]
-        and "salt" in section[analyst]
-    )
+    entry = _legacy_entry(config, analyst)
+    return entry is not None and "hash" in entry and "salt" in entry
 
 
 def verify_password(
@@ -256,8 +261,7 @@ def verify_password(
     if entry is None:
         # Fallback: legacy config.yaml
         config = _load_config(config_path)
-        section = config.get("passwords", config.get("pins", {}))
-        entry = section.get(analyst) if isinstance(section, dict) else None
+        entry = _legacy_entry(config, analyst)
     if not entry:
         return False
     try:
@@ -306,11 +310,7 @@ def setup_password(
 
     # Strip old location if present
     config = _load_config(config_path)
-    for key in ("passwords", "pins"):
-        if key in config and analyst in config[key]:
-            del config[key][analyst]
-            if not config[key]:
-                del config[key]
+    _strip_legacy_entry(config, analyst)
     _save_config(config_path, config)
 
     print(f"Password configured for analyst '{analyst}'.")
@@ -393,8 +393,7 @@ def get_analyst_salt(
     if entry is None:
         # Fallback: legacy config.yaml
         config = _load_config(config_path)
-        section = config.get("passwords", config.get("pins", {}))
-        entry = section.get(analyst) if isinstance(section, dict) else None
+        entry = _legacy_entry(config, analyst)
     if not entry or "salt" not in entry:
         raise ValueError(f"No salt found for analyst '{analyst}'")
     return bytes.fromhex(entry["salt"])

@@ -1,5 +1,6 @@
 """Tests for approval authentication module."""
 
+import hashlib
 import json
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,7 @@ from vhir_cli.approval_auth import (
     _LOCKOUT_SECONDS,
     _MAX_PASSWORD_ATTEMPTS,
     _MIN_PASSWORD_LENGTH,
+    PBKDF2_ITERATIONS,
     _check_lockout,
     _clear_failures,
     _load_password_entry,
@@ -221,6 +223,33 @@ class TestPasswordMigration:
         assert has_password(config_path, "alice", passwords_dir=passwords_dir)
         # Verify it was migrated
         assert _load_password_entry(passwords_dir, "alice") is not None
+
+    def test_legacy_fallback_agrees_across_readers(
+        self, config_path, tmp_path, monkeypatch
+    ):
+        """has_password, verify_password and get_analyst_salt read the same legacy entry."""
+        # Block migration so the legacy config.yaml entry stays in place
+        blocker = tmp_path / "blocker"
+        blocker.write_text("file")
+        bad_passwords = blocker / "passwords"
+        monkeypatch.setattr("vhir_cli.approval_auth._PASSWORDS_DIR", bad_passwords)
+        salt = bytes.fromhex("ab" * 32)
+        pw_hash = hashlib.pbkdf2_hmac(
+            "sha256", b"mypasswd1", salt, PBKDF2_ITERATIONS
+        ).hex()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w") as f:
+            yaml.dump({"pins": {"alice": {"hash": pw_hash, "salt": salt.hex()}}}, f)
+
+        assert has_password(config_path, "alice", passwords_dir=bad_passwords)
+        assert verify_password(
+            config_path, "alice", "mypasswd1", passwords_dir=bad_passwords
+        )
+        assert (
+            get_analyst_salt(config_path, "alice", passwords_dir=bad_passwords) == salt
+        )
+        # All three readers used the legacy fallback: migration never landed
+        assert _load_password_entry(bad_passwords, "alice") is None
 
 
 class TestExaminerNameValidation:
