@@ -175,84 +175,64 @@ def check_case_file_integrity(case_dir: Path, filename: str) -> None:
         sys.exit(1)
 
 
-def load_findings(case_dir: Path) -> list[dict]:
-    """Load findings from case root findings.json."""
-    findings_file = case_dir / "findings.json"
-    if not findings_file.exists():
+def _load_json_list(case_dir: Path, filename: str) -> list[dict]:
+    """Load a case root JSON list, warning and returning [] if it is corrupt."""
+    path = case_dir / filename
+    if not path.exists():
         return []
     try:
-        return json.loads(findings_file.read_text())
+        return json.loads(path.read_text())
     except json.JSONDecodeError as e:
-        print(f"WARNING: Corrupt findings.json ({findings_file}): {e}", file=sys.stderr)
+        print(f"WARNING: Corrupt {filename} ({path}): {e}", file=sys.stderr)
         return []
+
+
+def _save_json_list(
+    case_dir: Path, filename: str, items: list[dict], *, protected: bool = True
+) -> None:
+    """Save a case root JSON list. protected=False skips the chmod-444 lock."""
+    write = _protected_write if protected else _atomic_write
+    write(case_dir / filename, json.dumps(items, indent=2, default=str))
+
+
+def load_findings(case_dir: Path) -> list[dict]:
+    """Load findings from case root findings.json."""
+    return _load_json_list(case_dir, "findings.json")
 
 
 def save_findings(case_dir: Path, findings: list[dict]) -> None:
     """Save findings to case root."""
-    _protected_write(
-        case_dir / "findings.json",
-        json.dumps(findings, indent=2, default=str),
-    )
+    _save_json_list(case_dir, "findings.json", findings)
 
 
 def load_timeline(case_dir: Path) -> list[dict]:
     """Load timeline events from case root timeline.json."""
-    timeline_file = case_dir / "timeline.json"
-    if not timeline_file.exists():
-        return []
-    try:
-        return json.loads(timeline_file.read_text())
-    except json.JSONDecodeError as e:
-        print(f"WARNING: Corrupt timeline.json ({timeline_file}): {e}", file=sys.stderr)
-        return []
+    return _load_json_list(case_dir, "timeline.json")
 
 
 def save_timeline(case_dir: Path, timeline: list[dict]) -> None:
     """Save timeline to case root."""
-    _protected_write(
-        case_dir / "timeline.json",
-        json.dumps(timeline, indent=2, default=str),
-    )
+    _save_json_list(case_dir, "timeline.json", timeline)
 
 
 def load_todos(case_dir: Path) -> list[dict]:
     """Load TODO items from case root todos.json."""
-    todos_file = case_dir / "todos.json"
-    if not todos_file.exists():
-        return []
-    try:
-        return json.loads(todos_file.read_text())
-    except json.JSONDecodeError as e:
-        print(f"WARNING: Corrupt todos.json ({todos_file}): {e}", file=sys.stderr)
-        return []
+    return _load_json_list(case_dir, "todos.json")
 
 
 def save_todos(case_dir: Path, todos: list[dict]) -> None:
-    """Save TODO items to case root."""
-    _atomic_write(
-        case_dir / "todos.json",
-        json.dumps(todos, indent=2, default=str),
-    )
+    """Save TODO items to case root (not chmod-444 protected)."""
+    _save_json_list(case_dir, "todos.json", todos, protected=False)
 
 
 def load_iocs(case_dir: Path) -> list[dict]:
     """Load IOC records from case root iocs.json."""
-    iocs_file = case_dir / "iocs.json"
-    if not iocs_file.exists():
-        return []
-    try:
-        return json.loads(iocs_file.read_text())
-    except json.JSONDecodeError as e:
-        print(f"WARNING: Corrupt iocs.json ({iocs_file}): {e}", file=sys.stderr)
-        return []
+    return _load_json_list(case_dir, "iocs.json")
 
 
 def save_iocs(case_dir: Path, iocs: list[dict]) -> None:
     """Save IOC records to case root (protected write)."""
-    _protected_write(
-        case_dir / "iocs.json",
-        json.dumps(iocs, indent=2, default=str),
-    )
+    _save_json_list(case_dir, "iocs.json", iocs)
 
 
 # --- Approval I/O ---

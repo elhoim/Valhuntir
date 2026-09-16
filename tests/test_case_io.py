@@ -1,6 +1,7 @@
 """Tests for shared case I/O module."""
 
 import json
+import stat
 from argparse import Namespace
 from pathlib import Path
 
@@ -14,9 +15,13 @@ from vhir_cli.case_io import (
     get_case_dir,
     import_bundle,
     load_findings,
+    load_iocs,
     load_timeline,
+    load_todos,
     save_findings,
+    save_iocs,
     save_timeline,
+    save_todos,
     verify_approval_integrity,
     write_approval_log,
 )
@@ -78,6 +83,48 @@ class TestTimelineIO:
         loaded = load_timeline(case_dir)
         assert len(loaded) == 1
         assert loaded[0]["id"] == "T-tester-001"
+
+
+class TestWriteProtectionSplit:
+    """findings/timeline/iocs are chmod-444 protected; todos deliberately are not."""
+
+    @pytest.mark.parametrize(
+        "save, filename",
+        [
+            (save_findings, "findings.json"),
+            (save_timeline, "timeline.json"),
+            (save_iocs, "iocs.json"),
+        ],
+    )
+    def test_protected_saves_lock_file(self, case_dir, save, filename):
+        save(case_dir, [{"id": "X-tester-001"}])
+        mode = (case_dir / filename).stat().st_mode
+        assert mode & stat.S_IWUSR == 0
+
+    def test_save_todos_leaves_file_writable(self, case_dir):
+        save_todos(case_dir, [{"id": "TODO-tester-001"}])
+        mode = (case_dir / "todos.json").stat().st_mode
+        assert mode & stat.S_IWUSR != 0
+
+
+class TestCorruptLoads:
+    @pytest.mark.parametrize(
+        "load, filename",
+        [
+            (load_findings, "findings.json"),
+            (load_timeline, "timeline.json"),
+            (load_todos, "todos.json"),
+            (load_iocs, "iocs.json"),
+        ],
+    )
+    def test_corrupt_file_warns_and_returns_empty(
+        self, case_dir, capsys, load, filename
+    ):
+        (case_dir / filename).write_text("{not json")
+        assert load(case_dir) == []
+        err = capsys.readouterr().err
+        assert f"WARNING: Corrupt {filename}" in err
+        assert str(case_dir / filename) in err
 
 
 class TestNoMarkdownGeneration:
