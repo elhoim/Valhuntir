@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -182,6 +183,30 @@ def _create_backup(args, identity: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+_COPY_CHUNK = 1024 * 1024
+
+
+def _copy_file_hashing(src: Path, dst: Path) -> str:
+    """Copy src to dst and return the SHA-256 of the bytes copied.
+
+    Stands in for shutil.copy2 (copyfile + copystat) so the manifest hash comes
+    from the stream in flight instead of a second read of the destination. Gives
+    up copy2's sendfile fast path — hashing requires the bytes in user space.
+    """
+    if stat.S_ISFIFO(os.stat(src).st_mode):
+        raise shutil.SpecialFileError(f"`{src}` is a named pipe")
+    h = hashlib.sha256()
+    with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
+        while True:
+            chunk = fsrc.read(_COPY_CHUNK)
+            if not chunk:
+                break
+            h.update(chunk)
+            fdst.write(chunk)
+    shutil.copystat(str(src), str(dst))
+    return h.hexdigest()
+
+
 def create_backup_data(
     case_dir: Path,
     destination: str,
@@ -282,12 +307,14 @@ def create_backup_data(
     except (json.JSONDecodeError, OSError):
         pass  # best-effort
 
-    # Copy files
+    # Copy files — hash each stream in flight so the manifest needs no second
+    # pass over the payload, and so the recorded hash is the source's.
+    copied_hashes: dict[str, str] = {}
     total_files = len(files_to_copy)
     for i, (rel_path, abs_path, _size) in enumerate(files_to_copy, 1):
         dst = backup_dir / rel_path
         dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(abs_path), str(dst))
+        copied_hashes[rel_path] = _copy_file_hashing(Path(abs_path), dst)
         if progress_fn:
             progress_fn("Copying", i, total_files)
 
@@ -316,7 +343,11 @@ def create_backup_data(
     total_manifest = len(all_backup_files)
     for i, (rel, fpath) in enumerate(sorted(all_backup_files), 1):
         fsize = fpath.stat().st_size
-        fhash = sha256_file(fpath)
+        # Copied payload was already hashed in flight; everything else here
+        # (ledger, password hashes, OpenSearch snapshot) is hashed from disk.
+        fhash = copied_hashes.get(rel)
+        if fhash is None:
+            fhash = sha256_file(fpath)
         manifest_files.append({"path": rel, "sha256": fhash, "bytes": fsize})
         total_bytes += fsize
         if progress_fn:
