@@ -79,75 +79,43 @@ def cmd_migrate(args, identity: dict) -> None:
         edir = examiners_root / exam
         print(f"\n  Processing {exam}...")
 
-        # Findings
-        findings_file = edir / "findings.json"
-        if findings_file.exists():
+        # Findings, timeline and TODOs share one re-ID shape; the table keeps
+        # the three files from drifting apart. The two flags spell out where
+        # they legitimately differ: TODOs carry no modified_at (nothing merges
+        # or exports them by timestamp) but do resolve their related_findings
+        # here, against this examiner's own IDs.
+        for fname, label, prefix, id_field, bucket, stamp_modified, remap_refs in (
+            ("findings.json", "Findings", "F", "id", all_findings, True, False),
+            ("timeline.json", "Timeline", "T", "id", all_timeline, True, False),
+            ("todos.json", "TODOs", "TODO", "todo_id", all_todos, False, True),
+        ):
+            data_file = edir / fname
+            if not data_file.exists():
+                continue
             try:
-                findings = json.loads(findings_file.read_text())
+                records = json.loads(data_file.read_text())
             except (json.JSONDecodeError, OSError) as e:
-                print(
-                    f"    WARNING: could not read {findings_file}: {e}", file=sys.stderr
-                )
-                findings = []
-            for f in findings:
-                old_id = f.get("id", "")
-                new_id = _re_id(old_id, "F", exam)
+                print(f"    WARNING: could not read {data_file}: {e}", file=sys.stderr)
+                records = []
+            for rec in records:
+                old_id = rec.get(id_field, "")
+                new_id = _re_id(old_id, prefix, exam)
                 id_map[old_id] = new_id
                 id_map[f"{exam}/{old_id}"] = new_id  # Also map scoped form
-                f["id"] = new_id
-                f["examiner"] = exam
-                f.setdefault(
-                    "modified_at",
-                    f.get("staged", datetime.now(timezone.utc).isoformat()),
-                )
-                all_findings.append(f)
-            print(f"    Findings: {len(findings)} (re-IDed)")
-
-        # Timeline
-        timeline_file = edir / "timeline.json"
-        if timeline_file.exists():
-            try:
-                timeline = json.loads(timeline_file.read_text())
-            except (json.JSONDecodeError, OSError) as e:
-                print(
-                    f"    WARNING: could not read {timeline_file}: {e}", file=sys.stderr
-                )
-                timeline = []
-            for t in timeline:
-                old_id = t.get("id", "")
-                new_id = _re_id(old_id, "T", exam)
-                id_map[old_id] = new_id
-                id_map[f"{exam}/{old_id}"] = new_id
-                t["id"] = new_id
-                t["examiner"] = exam
-                t.setdefault(
-                    "modified_at",
-                    t.get("staged", datetime.now(timezone.utc).isoformat()),
-                )
-                all_timeline.append(t)
-            print(f"    Timeline: {len(timeline)} (re-IDed)")
-
-        # TODOs
-        todos_file = edir / "todos.json"
-        if todos_file.exists():
-            try:
-                todos = json.loads(todos_file.read_text())
-            except (json.JSONDecodeError, OSError) as e:
-                print(f"    WARNING: could not read {todos_file}: {e}", file=sys.stderr)
-                todos = []
-            for t in todos:
-                old_id = t.get("todo_id", "")
-                new_id = _re_id(old_id, "TODO", exam)
-                id_map[old_id] = new_id
-                id_map[f"{exam}/{old_id}"] = new_id
-                t["todo_id"] = new_id
-                t["examiner"] = exam
-                # Update related_findings references
-                t["related_findings"] = [
-                    id_map.get(r, r) for r in t.get("related_findings", [])
-                ]
-                all_todos.append(t)
-            print(f"    TODOs: {len(todos)} (re-IDed)")
+                rec[id_field] = new_id
+                rec["examiner"] = exam
+                if stamp_modified:
+                    rec.setdefault(
+                        "modified_at",
+                        rec.get("staged", datetime.now(timezone.utc).isoformat()),
+                    )
+                if remap_refs:
+                    # Update related_findings references
+                    rec["related_findings"] = [
+                        id_map.get(r, r) for r in rec.get("related_findings", [])
+                    ]
+                bucket.append(rec)
+            print(f"    {label}: {len(records)} (re-IDed)")
 
         # Actions
         actions_file = edir / "actions.jsonl"
