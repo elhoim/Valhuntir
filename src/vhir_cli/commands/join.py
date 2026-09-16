@@ -867,40 +867,55 @@ def _wintools_ssl_context():
     return ctx
 
 
-def _push_smb_credentials(password: str, smb_user: str = "vhir-smb") -> None:
-    """Push updated SMB credentials to wintools-mcp after smbpasswd change."""
+def _wintools_request(path: str, payload: bytes):
+    """Build an authenticated POST request to wintools-mcp at *path*.
+
+    Reads the wintools-mcp backend url and bearer token from
+    ~/.vhir/gateway.yaml. Returns None when wintools is not configured --
+    no gateway.yaml, an unreadable one, or a missing url/bearer_token.
+    """
     import urllib.request
     from urllib.parse import urlparse, urlunparse
 
     gateway_config = Path.home() / ".vhir" / "gateway.yaml"
     if not gateway_config.is_file():
-        return
+        return None
     try:
         config = yaml.safe_load(gateway_config.read_text())
     except Exception:
-        return
+        return None
     wt = config.get("backends", {}).get("wintools-mcp", {})
     url = wt.get("url", "")
     token = wt.get("bearer_token", "")
     if not url or not token:
-        return  # wintools not configured
+        return None  # wintools not configured
 
     parsed = urlparse(url)
-    update_url = urlunparse(parsed._replace(path="/config/update-smb"))
-
-    payload = json.dumps({"smb_user": smb_user, "smb_password": password}).encode()
-    req = urllib.request.Request(
-        update_url,
+    target_url = urlunparse(parsed._replace(path=path))
+    return urllib.request.Request(
+        target_url,
         data=payload,
+        method="POST",
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {token}",
         },
     )
+
+
+def _push_smb_credentials(password: str, smb_user: str = "vhir-smb") -> None:
+    """Push updated SMB credentials to wintools-mcp after smbpasswd change."""
+    import urllib.request
+
+    payload = json.dumps({"smb_user": smb_user, "smb_password": password}).encode()
+    req = _wintools_request("/config/update-smb", payload)
+    if req is None:
+        return  # wintools not configured
+
     import time as _time
 
     kwargs: dict = {"timeout": 5}
-    if update_url.startswith("https"):
+    if req.full_url.startswith("https"):
         kwargs["context"] = _wintools_ssl_context()
     for attempt in range(3):
         try:
@@ -921,36 +936,15 @@ def notify_wintools_case_activated(case_id: str) -> bool:
     Returns False only on actual communication failure.
     """
     import urllib.request
-    from urllib.parse import urlparse, urlunparse
-
-    gateway_config = Path.home() / ".vhir" / "gateway.yaml"
-    if not gateway_config.is_file():
-        return True  # not configured -- not a failure
-    try:
-        config = yaml.safe_load(gateway_config.read_text())
-    except Exception:
-        return True  # can't read config -- not a wintools failure
-    wt = config.get("backends", {}).get("wintools-mcp", {})
-    url = wt.get("url", "")
-    token = wt.get("bearer_token", "")
-    if not url or not token:
-        return True  # wintools not configured -- not a failure
-
-    parsed = urlparse(url)
-    activate_url = urlunparse(parsed._replace(path="/cases/activate"))
 
     payload = json.dumps({"case_id": case_id}).encode()
-    req = urllib.request.Request(
-        activate_url,
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        },
-    )
+    req = _wintools_request("/cases/activate", payload)
+    if req is None:
+        return True  # wintools not configured -- not a failure
+
     try:
         kwargs = {"timeout": 10}
-        if activate_url.startswith("https"):
+        if req.full_url.startswith("https"):
             kwargs["context"] = _wintools_ssl_context()
         with urllib.request.urlopen(req, **kwargs):
             pass
@@ -969,36 +963,14 @@ def notify_wintools_case_deactivated() -> bool:
     Returns False only on actual communication failure.
     """
     import urllib.request
-    from urllib.parse import urlparse, urlunparse
 
-    gateway_config = Path.home() / ".vhir" / "gateway.yaml"
-    if not gateway_config.is_file():
-        return True  # not configured
-    try:
-        config = yaml.safe_load(gateway_config.read_text())
-    except Exception:
-        return True
-    wt = config.get("backends", {}).get("wintools-mcp", {})
-    url = wt.get("url", "")
-    token = wt.get("bearer_token", "")
-    if not url or not token:
+    req = _wintools_request("/cases/deactivate", b"{}")
+    if req is None:
         return True  # not configured
 
-    parsed = urlparse(url)
-    deactivate_url = urlunparse(parsed._replace(path="/cases/deactivate"))
-
-    req = urllib.request.Request(
-        deactivate_url,
-        data=b"{}",
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        },
-    )
     try:
         kwargs = {"timeout": 10}
-        if deactivate_url.startswith("https"):
+        if req.full_url.startswith("https"):
             kwargs["context"] = _wintools_ssl_context()
         with urllib.request.urlopen(req, **kwargs):
             return True
