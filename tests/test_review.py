@@ -17,6 +17,7 @@ from vhir_cli.case_io import (
 from vhir_cli.commands.review import (
     _extract_iocs_from_findings,
     _extract_text_iocs,
+    _show_audit,
     cmd_review,
 )
 
@@ -582,3 +583,24 @@ class TestVerifyTampered:
         output = capsys.readouterr().out
         assert "TAMPERED" in output
         assert "Investigate immediately" in output
+
+
+class TestShowAudit:
+    """review --audit must read the audit trail the same way `vhir audit log` does."""
+
+    def test_mcp_derived_from_filename(self, tmp_path, capsys):
+        audit_dir = tmp_path / "audit"
+        audit_dir.mkdir()
+        entry = {
+            "ts": "2026-02-19T10:00:00+00:00",
+            "tool": "collect_artifact",
+            "audit_id": "wt-tester-20260219-001",
+            "examiner": "tester",
+        }
+        with open(audit_dir / "wintools-mcp.jsonl", "w", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+
+        _show_audit(tmp_path, 50)
+
+        output = capsys.readouterr().out
+        assert "wintools-mcp" in output

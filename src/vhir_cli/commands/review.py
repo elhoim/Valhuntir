@@ -22,6 +22,7 @@ from pathlib import Path
 from vhir_cli.case_io import (
     get_case_dir,
     hmac_text,
+    load_audit_entries,
     load_audit_index,
     load_case_meta,
     load_findings,
@@ -591,53 +592,7 @@ def _show_evidence(case_dir: Path) -> None:
 
 def _show_audit(case_dir: Path, limit: int) -> None:
     """Show audit trail entries from audit/."""
-    entries = []
-
-    # Read from audit/
-    audit_dir = case_dir / "audit"
-    if audit_dir.is_dir():
-        for jsonl_file in audit_dir.glob("*.jsonl"):
-            try:
-                with open(jsonl_file, encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            entries.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            print(
-                                f"  Warning: skipping corrupt audit line in {jsonl_file.name}",
-                                file=sys.stderr,
-                            )
-            except OSError as e:
-                print(f"  Warning: could not read {jsonl_file}: {e}", file=sys.stderr)
-                continue
-
-    # Read approvals
-    approvals_file = case_dir / "approvals.jsonl"
-    if approvals_file.exists():
-        try:
-            with open(approvals_file, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
-                        print(
-                            "  Warning: skipping corrupt approval line", file=sys.stderr
-                        )
-                        continue
-                    entry["tool"] = "approval"
-                    entry["mcp"] = "vhir-cli"
-                    entries.append(entry)
-        except OSError as e:
-            print(f"  Warning: could not read {approvals_file}: {e}", file=sys.stderr)
-
-    entries.sort(key=lambda e: e.get("ts", ""))
-    entries = entries[-limit:]
+    entries = load_audit_entries(case_dir)[-limit:]
 
     if not entries:
         print("No audit entries.")

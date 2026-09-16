@@ -451,6 +451,60 @@ def verify_approval_integrity(case_dir: Path) -> list[dict]:
 # --- Audit Index ---
 
 
+def load_audit_entries(case_dir: Path) -> list[dict]:
+    """Load all audit entries from audit/*.jsonl and approvals.jsonl, sorted by ts."""
+    entries: list[dict] = []
+    corrupt_lines = 0
+
+    audit_dir = case_dir / "audit"
+    if audit_dir.is_dir():
+        for jsonl_file in sorted(audit_dir.glob("*.jsonl")):
+            try:
+                with open(jsonl_file, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entry = json.loads(line)
+                            # Derive mcp name from filename if not present
+                            if "mcp" not in entry:
+                                entry["mcp"] = jsonl_file.stem
+                            entries.append(entry)
+                        except json.JSONDecodeError:
+                            corrupt_lines += 1
+            except OSError as e:
+                print(f"  Warning: could not read {jsonl_file}: {e}", file=sys.stderr)
+                continue
+
+    approvals_file = case_dir / "approvals.jsonl"
+    if approvals_file.exists():
+        try:
+            with open(approvals_file, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        entry.setdefault("tool", "approval")
+                        entry.setdefault("mcp", "vhir-cli")
+                        entries.append(entry)
+                    except json.JSONDecodeError:
+                        corrupt_lines += 1
+        except OSError:
+            pass
+
+    if corrupt_lines:
+        print(
+            f"  Warning: {corrupt_lines} corrupt JSONL line(s) skipped in audit trail",
+            file=sys.stderr,
+        )
+
+    entries.sort(key=lambda e: e.get("ts", ""))
+    return entries
+
+
 def load_audit_index(case_dir: Path) -> dict[str, dict]:
     """Scan audit/*.jsonl and build {audit_id: {**entry, "_source_file": filename}}.
 
