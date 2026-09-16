@@ -174,7 +174,7 @@ def _approve_specific(
         coupled_events.append(tl_event)
 
     # IOC approval coupling
-    from vhir_cli.case_io import load_iocs, save_iocs
+    from vhir_cli.case_io import cascade_iocs, load_iocs, save_iocs
 
     # Build lookup for all findings (not just ones being approved)
     all_findings = load_findings(case_dir)
@@ -184,24 +184,15 @@ def _approve_specific(
         finding_status[item["id"]] = item.get("status", "DRAFT")
 
     iocs = load_iocs(case_dir)
-    iocs_modified = False
-    for ioc in iocs:
-        if ioc.get("manually_reviewed"):
-            continue
-        source_ids = ioc.get("source_findings", [])
-        if not source_ids:
-            continue
-        # ALL source findings must be APPROVED
-        all_approved = all(
-            finding_status.get(sid, "DRAFT") == "APPROVED" for sid in source_ids
-        )
-        if all_approved and ioc.get("status") != "APPROVED":
-            ioc["status"] = "APPROVED"
-            ioc["approved_at"] = now
-            ioc["approved_by"] = identity["examiner"]
-            ioc["modified_at"] = now
-            iocs_modified = True
-            coupled_events.append(ioc)
+    coupled_iocs = cascade_iocs(
+        iocs,
+        finding_status.get,
+        identity["examiner"],
+        now,
+        targets=("APPROVED",),
+    )
+    iocs_modified = bool(coupled_iocs)
+    coupled_events.extend(coupled_iocs)
 
     # Step 1: Persist primary data FIRST
     try:
@@ -432,33 +423,14 @@ def _interactive_review(
             coupled_tl.append(tl_event)
 
     # IOC approval/rejection coupling
-    from vhir_cli.case_io import load_iocs, save_iocs
+    from vhir_cli.case_io import cascade_iocs, load_iocs, save_iocs
 
     all_finding_status = {f["id"]: f.get("status", "DRAFT") for f in findings}
     iocs = load_iocs(case_dir)
-    iocs_modified = False
-    for ioc in iocs:
-        if ioc.get("manually_reviewed"):
-            continue
-        source_ids = ioc.get("source_findings", [])
-        if not source_ids:
-            continue
-        statuses = {all_finding_status.get(sid, "DRAFT") for sid in source_ids}
-        if statuses == {"APPROVED"} and ioc.get("status") != "APPROVED":
-            ioc["status"] = "APPROVED"
-            ioc["approved_at"] = now
-            ioc["approved_by"] = identity["examiner"]
-            ioc["modified_at"] = now
-            iocs_modified = True
-            coupled_ioc.append(ioc)
-        elif statuses == {"REJECTED"} and ioc.get("status") != "REJECTED":
-            ioc["status"] = "REJECTED"
-            ioc["rejected_at"] = now
-            ioc["rejected_by"] = identity["examiner"]
-            ioc["rejection_reason"] = "All source findings rejected"
-            ioc["modified_at"] = now
-            iocs_modified = True
-            coupled_ioc.append(ioc)
+    coupled_ioc.extend(
+        cascade_iocs(iocs, all_finding_status.get, identity["examiner"], now)
+    )
+    iocs_modified = bool(coupled_ioc)
 
     # Step 1: Persist primary data FIRST
     try:
@@ -1052,7 +1024,7 @@ def _review_mode(case_dir: Path, identity: dict, config_path: Path) -> None:
     findings = load_findings(case_dir)
     timeline = load_timeline(case_dir)
 
-    from vhir_cli.case_io import load_iocs, save_iocs
+    from vhir_cli.case_io import cascade_iocs, load_iocs, save_iocs
 
     iocs = load_iocs(case_dir)
 
@@ -1267,29 +1239,24 @@ def _review_mode(case_dir: Path, identity: dict, config_path: Path) -> None:
     any_ioc_acted = any(
         aid.startswith("IOC-") for aid in approved_ids + rejected_ids + edited_ids
     )
-    iocs_modified = any_ioc_acted
-    for ioc in iocs:
-        if ioc.get("manually_reviewed"):
-            continue
-        source_ids = ioc.get("source_findings", [])
-        relevant = [item_by_id.get(sid) for sid in source_ids if item_by_id.get(sid)]
-        if not relevant:
-            continue
-        statuses = {r.get("status", "DRAFT") for r in relevant}
-        if statuses == {"APPROVED"} and ioc.get("status") != "APPROVED":
-            ioc["status"] = "APPROVED"
-            ioc["approved_at"] = now
-            ioc["approved_by"] = identity["examiner"]
-            ioc["modified_at"] = now
-            iocs_modified = True
+
+    def _source_status(sid: str) -> str | None:
+        """Resolve against the whole case index; unknown IDs are ignored."""
+        source = item_by_id.get(sid)
+        if source is None:
+            return None
+        # An explicit "status": null is an unset status, not a missing source —
+        # treat it as DRAFT so it blocks the cascade instead of being skipped.
+        return source.get("status") or "DRAFT"
+
+    coupled_iocs = cascade_iocs(
+        iocs, _source_status, identity["examiner"], now, skip_missing=True
+    )
+    iocs_modified = any_ioc_acted or bool(coupled_iocs)
+    for ioc in coupled_iocs:
+        if ioc["status"] == "APPROVED":
             approved_ids.append(ioc["id"])
-        elif statuses == {"REJECTED"} and ioc.get("status") != "REJECTED":
-            ioc["status"] = "REJECTED"
-            ioc["rejected_at"] = now
-            ioc["rejected_by"] = identity["examiner"]
-            ioc["rejection_reason"] = "All source findings rejected"
-            ioc["modified_at"] = now
-            iocs_modified = True
+        else:
             rejected_ids.append(ioc["id"])
 
     # Step 1: Persist primary data FIRST

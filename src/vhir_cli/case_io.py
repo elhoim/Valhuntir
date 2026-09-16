@@ -11,6 +11,7 @@ import os
 import re
 import sys
 import tempfile
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -253,6 +254,72 @@ def save_iocs(case_dir: Path, iocs: list[dict]) -> None:
         case_dir / "iocs.json",
         json.dumps(iocs, indent=2, default=str),
     )
+
+
+def cascade_iocs(
+    iocs: list[dict],
+    source_status: Callable[[str], str | None],
+    examiner: str,
+    now: str,
+    targets: tuple[str, ...] = ("APPROVED", "REJECTED"),
+    skip_missing: bool = False,
+) -> list[dict]:
+    """Apply the IOC coupling rule: an IOC follows all of its source findings.
+
+    An IOC is auto-approved only when every source finding is APPROVED, and
+    auto-rejected only when every source finding is REJECTED. IOCs that were
+    reviewed directly (`manually_reviewed`) or have no sources never cascade.
+
+    `source_status` resolves a source finding ID to its status, returning None
+    when the ID cannot be resolved. `skip_missing` decides what that means:
+    False treats an unresolvable source as DRAFT (so it holds the IOC back),
+    True drops it from the decision. Callers differ here — see the entry
+    points in commands/approve.py and commands/reject.py.
+
+    `targets` limits which transitions the caller wants: `vhir approve IDS`
+    only ever approves, `vhir reject IDS` only ever rejects.
+
+    Mutates the IOCs in place and returns the ones that changed.
+    """
+    changed: list[dict] = []
+    for ioc in iocs:
+        if ioc.get("manually_reviewed"):
+            continue
+        source_ids = ioc.get("source_findings", [])
+        if not source_ids:
+            continue
+        statuses = set()
+        for sid in source_ids:
+            status = source_status(sid)
+            if status is None:
+                if skip_missing:
+                    continue
+                status = "DRAFT"
+            statuses.add(status)
+        if not statuses:
+            continue
+        if (
+            "APPROVED" in targets
+            and statuses == {"APPROVED"}
+            and ioc.get("status") != "APPROVED"
+        ):
+            ioc["status"] = "APPROVED"
+            ioc["approved_at"] = now
+            ioc["approved_by"] = examiner
+            ioc["modified_at"] = now
+            changed.append(ioc)
+        elif (
+            "REJECTED" in targets
+            and statuses == {"REJECTED"}
+            and ioc.get("status") != "REJECTED"
+        ):
+            ioc["status"] = "REJECTED"
+            ioc["rejected_at"] = now
+            ioc["rejected_by"] = examiner
+            ioc["rejection_reason"] = "All source findings rejected"
+            ioc["modified_at"] = now
+            changed.append(ioc)
+    return changed
 
 
 # --- Approval I/O ---
