@@ -38,6 +38,8 @@ from vhir_cli.case_io import (
     save_findings,
     save_timeline,
     save_todos,
+    stamp_approved,
+    stamp_rejected,
     write_approval_log,
 )
 
@@ -149,10 +151,7 @@ def _approve_specific(
                 f"(content hash changed)."
             )
         item["content_hash"] = new_hash
-        item["status"] = "APPROVED"
-        item["approved_at"] = now
-        item["approved_by"] = identity["examiner"]
-        item["modified_at"] = now
+        stamp_approved(item, identity["examiner"], now)
 
     # Timeline approval coupling: auto-created events follow their finding
     approved_ids = {
@@ -165,10 +164,7 @@ def _approve_specific(
             continue
         if tl_event.get("examiner_modifications"):
             continue
-        tl_event["status"] = "APPROVED"
-        tl_event["approved_at"] = now
-        tl_event["approved_by"] = identity["examiner"]
-        tl_event["modified_at"] = now
+        stamp_approved(tl_event, identity["examiner"], now)
         new_hash = compute_content_hash(tl_event)
         tl_event["content_hash"] = new_hash
         coupled_events.append(tl_event)
@@ -196,10 +192,7 @@ def _approve_specific(
             finding_status.get(sid, "DRAFT") == "APPROVED" for sid in source_ids
         )
         if all_approved and ioc.get("status") != "APPROVED":
-            ioc["status"] = "APPROVED"
-            ioc["approved_at"] = now
-            ioc["approved_by"] = identity["examiner"]
-            ioc["modified_at"] = now
+            stamp_approved(ioc, identity["examiner"], now)
             iocs_modified = True
             coupled_events.append(ioc)
 
@@ -382,25 +375,14 @@ def _interactive_review(
                     f"(content hash changed)."
                 )
             item["content_hash"] = new_hash
-            item["status"] = "APPROVED"
-            item["approved_at"] = now
-            item["approved_by"] = identity["examiner"]
+            stamp_approved(item, identity["examiner"], now)
 
     # Apply rejections (in-memory)
     for item in all_items:
         disp = dispositions.get(item["id"])
         if disp and disp[0] == "reject":
             reason = disp[1] or ""
-            item["status"] = "REJECTED"
-            item["rejected_at"] = now
-            item["rejected_by"] = identity["examiner"]
-            if reason:
-                item["rejection_reason"] = reason
-
-    # Update modified_at on changed items
-    for item in all_items:
-        if item["id"] in approvals or item["id"] in rejections:
-            item["modified_at"] = now
+            stamp_rejected(item, identity["examiner"], now, reason)
 
     # Timeline approval coupling: auto-created events follow their finding
     coupled_tl = []
@@ -416,19 +398,14 @@ def _interactive_review(
         if not source:
             continue
         if source["id"] in approvals:
-            tl_event["status"] = "APPROVED"
-            tl_event["approved_at"] = now
-            tl_event["approved_by"] = identity["examiner"]
-            tl_event["modified_at"] = now
+            stamp_approved(tl_event, identity["examiner"], now)
             new_hash = compute_content_hash(tl_event)
             tl_event["content_hash"] = new_hash
             coupled_tl.append(tl_event)
         elif source["id"] in rejections:
-            tl_event["status"] = "REJECTED"
-            tl_event["rejected_at"] = now
-            tl_event["rejected_by"] = identity["examiner"]
-            tl_event["rejection_reason"] = "Source finding rejected"
-            tl_event["modified_at"] = now
+            stamp_rejected(
+                tl_event, identity["examiner"], now, "Source finding rejected"
+            )
             coupled_tl.append(tl_event)
 
     # IOC approval/rejection coupling
@@ -445,18 +422,13 @@ def _interactive_review(
             continue
         statuses = {all_finding_status.get(sid, "DRAFT") for sid in source_ids}
         if statuses == {"APPROVED"} and ioc.get("status") != "APPROVED":
-            ioc["status"] = "APPROVED"
-            ioc["approved_at"] = now
-            ioc["approved_by"] = identity["examiner"]
-            ioc["modified_at"] = now
+            stamp_approved(ioc, identity["examiner"], now)
             iocs_modified = True
             coupled_ioc.append(ioc)
         elif statuses == {"REJECTED"} and ioc.get("status") != "REJECTED":
-            ioc["status"] = "REJECTED"
-            ioc["rejected_at"] = now
-            ioc["rejected_by"] = identity["examiner"]
-            ioc["rejection_reason"] = "All source findings rejected"
-            ioc["modified_at"] = now
+            stamp_rejected(
+                ioc, identity["examiner"], now, "All source findings rejected"
+            )
             iocs_modified = True
             coupled_ioc.append(ioc)
 
@@ -1163,10 +1135,7 @@ def _review_mode(case_dir: Path, identity: dict, config_path: Path) -> None:
         # Compute content hash AFTER modifications
         new_hash = compute_content_hash(item)
         item["content_hash"] = new_hash
-        item["status"] = "APPROVED"
-        item["approved_at"] = now
-        item["approved_by"] = identity["examiner"]
-        item["modified_at"] = now
+        stamp_approved(item, identity["examiner"], now)
         # Direct IOC actions decouple from cascade
         if item_id.startswith("IOC-"):
             item["manually_reviewed"] = True
@@ -1225,12 +1194,7 @@ def _review_mode(case_dir: Path, identity: dict, config_path: Path) -> None:
             continue
 
         reason = entry.get("rejection_reason", "") or entry.get("reason", "")
-        item["status"] = "REJECTED"
-        item["rejected_at"] = now
-        item["rejected_by"] = identity["examiner"]
-        if reason:
-            item["rejection_reason"] = reason
-        item["modified_at"] = now
+        stamp_rejected(item, identity["examiner"], now, reason)
         # Direct IOC actions decouple from cascade
         if item_id.startswith("IOC-"):
             item["manually_reviewed"] = True
@@ -1247,19 +1211,14 @@ def _review_mode(case_dir: Path, identity: dict, config_path: Path) -> None:
         if not source:
             continue
         if source.get("status") == "APPROVED":
-            tl_event["status"] = "APPROVED"
-            tl_event["approved_at"] = now
-            tl_event["approved_by"] = identity["examiner"]
-            tl_event["modified_at"] = now
+            stamp_approved(tl_event, identity["examiner"], now)
             new_hash = compute_content_hash(tl_event)
             tl_event["content_hash"] = new_hash
             approved_ids.append(tl_event["id"])
         elif source.get("status") == "REJECTED":
-            tl_event["status"] = "REJECTED"
-            tl_event["rejected_at"] = now
-            tl_event["rejected_by"] = identity["examiner"]
-            tl_event["rejection_reason"] = "Source finding rejected"
-            tl_event["modified_at"] = now
+            stamp_rejected(
+                tl_event, identity["examiner"], now, "Source finding rejected"
+            )
             rejected_ids.append(tl_event["id"])
 
     # IOC approval coupling (review mode)
@@ -1277,18 +1236,13 @@ def _review_mode(case_dir: Path, identity: dict, config_path: Path) -> None:
             continue
         statuses = {r.get("status", "DRAFT") for r in relevant}
         if statuses == {"APPROVED"} and ioc.get("status") != "APPROVED":
-            ioc["status"] = "APPROVED"
-            ioc["approved_at"] = now
-            ioc["approved_by"] = identity["examiner"]
-            ioc["modified_at"] = now
+            stamp_approved(ioc, identity["examiner"], now)
             iocs_modified = True
             approved_ids.append(ioc["id"])
         elif statuses == {"REJECTED"} and ioc.get("status") != "REJECTED":
-            ioc["status"] = "REJECTED"
-            ioc["rejected_at"] = now
-            ioc["rejected_by"] = identity["examiner"]
-            ioc["rejection_reason"] = "All source findings rejected"
-            ioc["modified_at"] = now
+            stamp_rejected(
+                ioc, identity["examiner"], now, "All source findings rejected"
+            )
             iocs_modified = True
             rejected_ids.append(ioc["id"])
 

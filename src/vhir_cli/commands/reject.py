@@ -18,6 +18,7 @@ from vhir_cli.case_io import (
     load_timeline,
     save_findings,
     save_timeline,
+    stamp_rejected,
     write_approval_log,
 )
 
@@ -79,12 +80,7 @@ def cmd_reject(args, identity: dict) -> None:
         item = find_draft_item(item_id, findings, timeline)
         if item is None:
             continue
-        item["status"] = "REJECTED"
-        item["rejected_at"] = now
-        item["rejected_by"] = identity["examiner"]
-        item["modified_at"] = now
-        if reason:
-            item["rejection_reason"] = reason
+        stamp_rejected(item, identity["examiner"], now, reason)
         rejected.append(item_id)
 
     if not rejected:
@@ -98,11 +94,7 @@ def cmd_reject(args, identity: dict) -> None:
             continue
         if tl_event.get("examiner_modifications"):
             continue
-        tl_event["status"] = "REJECTED"
-        tl_event["rejected_at"] = now
-        tl_event["rejected_by"] = identity["examiner"]
-        tl_event["rejection_reason"] = "Source finding rejected"
-        tl_event["modified_at"] = now
+        stamp_rejected(tl_event, identity["examiner"], now, "Source finding rejected")
         rejected.append(tl_event["id"])
 
     # IOC rejection coupling
@@ -126,11 +118,9 @@ def cmd_reject(args, identity: dict) -> None:
             finding_status.get(sid, "DRAFT") == "REJECTED" for sid in source_ids
         )
         if all_rejected and ioc.get("status") != "REJECTED":
-            ioc["status"] = "REJECTED"
-            ioc["rejected_at"] = now
-            ioc["rejected_by"] = identity["examiner"]
-            ioc["rejection_reason"] = "All source findings rejected"
-            ioc["modified_at"] = now
+            stamp_rejected(
+                ioc, identity["examiner"], now, "All source findings rejected"
+            )
             iocs_modified = True
             rejected.append(ioc["id"])
 
@@ -224,12 +214,7 @@ def _interactive_reject(case_dir: Path, identity: dict, config_path: Path) -> No
         item = find_draft_item(item_id, findings, timeline)
         if item is None:
             continue
-        item["status"] = "REJECTED"
-        item["rejected_at"] = now
-        item["rejected_by"] = identity["examiner"]
-        item["modified_at"] = now
-        if reason:
-            item["rejection_reason"] = reason
+        stamp_rejected(item, identity["examiner"], now, reason)
         rejected.append(item_id)
 
     if not rejected:
@@ -243,11 +228,7 @@ def _interactive_reject(case_dir: Path, identity: dict, config_path: Path) -> No
             continue
         if tl_event.get("examiner_modifications"):
             continue
-        tl_event["status"] = "REJECTED"
-        tl_event["rejected_at"] = now
-        tl_event["rejected_by"] = identity["examiner"]
-        tl_event["rejection_reason"] = "Source finding rejected"
-        tl_event["modified_at"] = now
+        stamp_rejected(tl_event, identity["examiner"], now, "Source finding rejected")
         rejected.append(tl_event["id"])
 
     # IOC rejection coupling (interactive)
@@ -271,11 +252,9 @@ def _interactive_reject(case_dir: Path, identity: dict, config_path: Path) -> No
             finding_status_2.get(sid, "DRAFT") == "REJECTED" for sid in source_ids
         )
         if all_rejected and ioc.get("status") != "REJECTED":
-            ioc["status"] = "REJECTED"
-            ioc["rejected_at"] = now
-            ioc["rejected_by"] = identity["examiner"]
-            ioc["rejection_reason"] = "All source findings rejected"
-            ioc["modified_at"] = now
+            stamp_rejected(
+                ioc, identity["examiner"], now, "All source findings rejected"
+            )
             iocs_modified = True
             rejected.append(ioc["id"])
 

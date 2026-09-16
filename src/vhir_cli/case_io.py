@@ -351,6 +351,38 @@ def find_draft_item(
     return None
 
 
+# --- Approval stamping ---
+
+
+def stamp_approved(item: dict, examiner: str, now: str) -> None:
+    """Mark an item APPROVED with examiner and timestamps.
+
+    Single source of truth for approval provenance so every approval
+    path — direct, interactive, dashboard delta, and the timeline/IOC
+    coupling cascades — records identical metadata. Callers keep
+    ownership of 'content_hash', which is computed at different points
+    relative to the stamp.
+    """
+    item["status"] = "APPROVED"
+    item["approved_at"] = now
+    item["approved_by"] = examiner
+    item["modified_at"] = now
+
+
+def stamp_rejected(item: dict, examiner: str, now: str, reason: str = "") -> None:
+    """Mark an item REJECTED with examiner, timestamps and optional reason.
+
+    Twin of stamp_approved(). An empty reason leaves 'rejection_reason'
+    absent rather than writing a blank one.
+    """
+    item["status"] = "REJECTED"
+    item["rejected_at"] = now
+    item["rejected_by"] = examiner
+    if reason:
+        item["rejection_reason"] = reason
+    item["modified_at"] = now
+
+
 # --- Content hashing ---
 
 HASH_EXCLUDE_KEYS = {

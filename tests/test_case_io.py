@@ -17,6 +17,8 @@ from vhir_cli.case_io import (
     load_timeline,
     save_findings,
     save_timeline,
+    stamp_approved,
+    stamp_rejected,
     verify_approval_integrity,
     write_approval_log,
 )
@@ -214,6 +216,39 @@ class TestIdentityLowercase:
 
         identity = get_examiner_identity(flag_override="ALICE")
         assert identity["examiner"] == "alice"
+
+
+class TestApprovalStamps:
+    def test_stamp_approved(self):
+        item = {"id": "F-tester-001", "status": "DRAFT"}
+        stamp_approved(item, "tester", "2026-01-01T00:00:00+00:00")
+        assert item["status"] == "APPROVED"
+        assert item["approved_at"] == "2026-01-01T00:00:00+00:00"
+        assert item["approved_by"] == "tester"
+        assert item["modified_at"] == "2026-01-01T00:00:00+00:00"
+
+    def test_stamp_rejected_with_reason(self):
+        item = {"id": "F-tester-001", "status": "DRAFT"}
+        stamp_rejected(item, "tester", "2026-01-01T00:00:00+00:00", "not relevant")
+        assert item["status"] == "REJECTED"
+        assert item["rejected_at"] == "2026-01-01T00:00:00+00:00"
+        assert item["rejected_by"] == "tester"
+        assert item["rejection_reason"] == "not relevant"
+        assert item["modified_at"] == "2026-01-01T00:00:00+00:00"
+
+    def test_stamp_rejected_without_reason_omits_key(self):
+        item = {"id": "F-tester-001", "status": "DRAFT"}
+        stamp_rejected(item, "tester", "2026-01-01T00:00:00+00:00")
+        assert item["status"] == "REJECTED"
+        assert "rejection_reason" not in item
+
+    def test_stamps_do_not_change_content_hash(self):
+        item = {"id": "F-tester-001", "status": "DRAFT", "observation": "something"}
+        before = compute_content_hash(item)
+        stamp_approved(item, "tester", "2026-01-01T00:00:00+00:00")
+        assert compute_content_hash(item) == before
+        stamp_rejected(item, "tester", "2026-01-02T00:00:00+00:00", "superseded")
+        assert compute_content_hash(item) == before
 
 
 class TestContentHash:
