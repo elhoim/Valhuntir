@@ -18,6 +18,8 @@ import os
 import shutil
 from pathlib import Path
 
+from vhir_cli.case_io import _atomic_write
+
 VERIFICATION_DIR = Path("/var/lib/vhir/verification")
 PBKDF2_ITERATIONS = 600_000
 
@@ -145,21 +147,7 @@ def rehmac_entries(
         count += 1
 
     # Rewrite the file atomically (temp + rename to prevent truncation on crash)
-    import tempfile
-
-    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            for entry in updated:
-                f.write(json.dumps(entry) + "\n")
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, str(path))
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
-    os.chmod(path, 0o600)
+    _atomic_write(
+        path, "".join(json.dumps(entry) + "\n" for entry in updated), mode=0o600
+    )
     return count

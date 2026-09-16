@@ -20,7 +20,6 @@ import re
 import secrets
 import subprocess
 import sys
-import tempfile
 import time
 
 try:
@@ -33,6 +32,8 @@ except ImportError:
 from pathlib import Path
 
 import yaml
+
+from vhir_cli.case_io import _atomic_write
 
 PBKDF2_ITERATIONS = 600_000
 _MAX_PASSWORD_ATTEMPTS = 3
@@ -74,20 +75,7 @@ def _save_password_entry(passwords_dir: Path, analyst: str, entry: dict) -> None
     _validate_examiner_name(analyst)
     passwords_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = _password_file(passwords_dir, analyst)
-    fd, tmp_path = tempfile.mkstemp(dir=str(passwords_dir), suffix=".tmp")
-    try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(entry, f)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, str(path))
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    _atomic_write(path, json.dumps(entry), mode=0o600)
 
 
 def _maybe_migrate_pin_dir() -> None:
@@ -414,18 +402,7 @@ def _load_failures() -> dict[str, list[float]]:
 def _save_failures(data: dict[str, list[float]]) -> None:
     """Write failure timestamps to disk with 0o600 permissions."""
     _LOCKOUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=str(_LOCKOUT_FILE.parent), suffix=".tmp")
-    try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f)
-        os.replace(tmp_path, str(_LOCKOUT_FILE))
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    _atomic_write(_LOCKOUT_FILE, json.dumps(data), mode=0o600)
 
 
 def _recent_failure_count(analyst: str) -> int:
@@ -535,15 +512,4 @@ def _load_config(config_path: Path) -> dict:
 def _save_config(config_path: Path, config: dict) -> None:
     """Save YAML config file atomically with restricted permissions."""
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=str(config_path.parent), suffix=".tmp")
-    try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w") as f:
-            yaml.dump(config, f, default_flow_style=False)
-        os.replace(tmp_path, str(config_path))
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    _atomic_write(config_path, yaml.dump(config, default_flow_style=False), mode=0o600)

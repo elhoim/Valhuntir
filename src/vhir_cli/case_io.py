@@ -39,10 +39,16 @@ def _validate_examiner(examiner: str) -> None:
         raise CaseError(f"Invalid examiner slug: {examiner!r}")
 
 
-def _atomic_write(path: Path, content: str) -> None:
-    """Write file atomically via temp file + rename to prevent data loss on crash."""
+def _atomic_write(path: Path, content: str, *, mode: int | None = None) -> None:
+    """Write file atomically via temp file + rename to prevent data loss on crash.
+
+    When mode is given, the permission bits are applied to the temp file before
+    any content is written — no window where the final file is more permissive.
+    """
     fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
+        if mode is not None:
+            os.fchmod(fd, mode)
         with os.fdopen(fd, "w") as f:
             f.write(content)
             f.flush()

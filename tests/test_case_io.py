@@ -9,6 +9,7 @@ import yaml
 
 from vhir_cli.case_io import (
     CaseError,
+    _atomic_write,
     compute_content_hash,
     export_bundle,
     get_case_dir,
@@ -525,3 +526,16 @@ class TestCaseList:
         output = capsys.readouterr().out
         assert "INC-2026-001" in output
         assert "not-a-case" not in output
+
+
+class TestAtomicWrite:
+    def test_writes_content_and_leaves_no_temp_file(self, tmp_path):
+        target = tmp_path / "data.json"
+        _atomic_write(target, '{"a": 1}')
+        assert target.read_text() == '{"a": 1}'
+        assert list(tmp_path.iterdir()) == [target]
+
+    def test_mode_is_applied(self, tmp_path):
+        target = tmp_path / "config.yaml"
+        _atomic_write(target, "key: value\n", mode=0o644)
+        assert target.stat().st_mode & 0o777 == 0o644
