@@ -8,7 +8,13 @@ from __future__ import annotations
 import sys
 from datetime import datetime, timezone
 
-from vhir_cli.case_io import get_case_dir, load_todos, save_todos
+from vhir_cli.case_io import (
+    get_case_dir,
+    load_todos,
+    make_todo,
+    next_todo_id,
+    save_todos,
+)
 
 
 def cmd_todo(args, identity: dict) -> None:
@@ -56,31 +62,15 @@ def _todo_list(case_dir, args) -> None:
 def _todo_add(case_dir, args, identity: dict) -> None:
     """Add a new TODO."""
     todos = load_todos(case_dir)
-    examiner = identity["examiner"]
-    prefix = f"TODO-{examiner}-"
-    max_seq = 0
-    for t in todos:
-        tid = t.get("todo_id", "")
-        if tid.startswith(prefix):
-            try:
-                seq = int(tid[len(prefix) :])
-                max_seq = max(max_seq, seq)
-            except ValueError:
-                pass
-    todo_id = f"{prefix}{max_seq + 1:03d}"
+    todo_id = next_todo_id(todos, identity["examiner"])
 
-    todo = {
-        "todo_id": todo_id,
-        "description": args.description,
-        "status": "open",
-        "priority": getattr(args, "priority", "medium") or "medium",
-        "assignee": getattr(args, "assignee", "") or "",
-        "related_findings": [],
-        "created_by": identity["examiner"],
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "notes": [],
-        "completed_at": None,
-    }
+    todo = make_todo(
+        todo_id,
+        args.description,
+        identity["examiner"],
+        priority=getattr(args, "priority", "medium") or "medium",
+        assignee=getattr(args, "assignee", "") or "",
+    )
 
     # Parse --finding flags
     finding = getattr(args, "finding", None)

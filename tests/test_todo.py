@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from vhir_cli.case_io import load_todos, save_todos
+from vhir_cli.commands.approve import _create_todos
 from vhir_cli.commands.todo import cmd_todo
 
 
@@ -275,3 +276,36 @@ class TestTodoList:
         cmd_todo(args, identity)
         output = capsys.readouterr().out
         assert "No TODOs found" in output
+
+
+class TestTodoSchemaParity:
+    """TODOs created by `vhir approve` [t] must match those from `vhir todo add`."""
+
+    def test_same_fields_from_both_paths(self, case_dir, identity, capsys):
+        args = Namespace(
+            case=None,
+            todo_action="add",
+            description="From todo add",
+            assignee="",
+            priority="medium",
+            finding=None,
+        )
+        cmd_todo(args, identity)
+        _create_todos(case_dir, [{"description": "From approve"}], identity)
+
+        added, from_approve = load_todos(case_dir)
+        assert set(from_approve) == set(added)
+        assert from_approve["created_by"] == "analyst1"
+        assert from_approve["status"] == "open"
+
+    def test_approve_ids_stay_sequential(self, case_dir, identity, capsys):
+        _create_todos(
+            case_dir,
+            [{"description": "one"}, {"description": "two"}],
+            identity,
+        )
+        todos = load_todos(case_dir)
+        assert [t["todo_id"] for t in todos] == [
+            "TODO-analyst1-001",
+            "TODO-analyst1-002",
+        ]

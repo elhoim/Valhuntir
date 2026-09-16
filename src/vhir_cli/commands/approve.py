@@ -35,6 +35,8 @@ from vhir_cli.case_io import (
     load_findings,
     load_timeline,
     load_todos,
+    make_todo,
+    next_todo_id,
     save_findings,
     save_timeline,
     save_todos,
@@ -775,29 +777,15 @@ def _create_todos(case_dir: Path, todos_to_create: list[dict], identity: dict) -
     todos = load_todos(case_dir)
     examiner = identity["examiner"]
     for td in todos_to_create:
-        # Find next sequence for this examiner
-        prefix = f"TODO-{examiner}-"
-        max_num = 0
-        for t in todos:
-            tid = t.get("todo_id", "")
-            if tid.startswith(prefix):
-                try:
-                    max_num = max(max_num, int(tid[len(prefix) :]))
-                except ValueError:
-                    pass
-        todo_id = f"TODO-{examiner}-{max_num + 1:03d}"
-        todo = {
-            "todo_id": todo_id,
-            "description": td["description"],
-            "status": "open",
-            "priority": td.get("priority", "medium"),
-            "assignee": td.get("assignee", ""),
-            "related_findings": td.get("related_findings", []),
-            "created_by": identity["examiner"],
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "notes": [],
-            "completed_at": None,
-        }
+        todo_id = next_todo_id(todos, examiner)
+        todo = make_todo(
+            todo_id,
+            td["description"],
+            examiner,
+            priority=td.get("priority", "medium"),
+            assignee=td.get("assignee", ""),
+            related_findings=td.get("related_findings", []),
+        )
         todos.append(todo)
         print(f"  Created {todo_id}: {td['description']}")
     save_todos(case_dir, todos)

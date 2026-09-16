@@ -235,6 +235,43 @@ def save_todos(case_dir: Path, todos: list[dict]) -> None:
     )
 
 
+def next_todo_id(todos: list[dict], examiner: str) -> str:
+    """Next unused TODO id for an examiner, e.g. TODO-alice-004."""
+    prefix = f"TODO-{examiner}-"
+    max_seq = 0
+    for t in todos:
+        tid = t.get("todo_id", "")
+        if tid.startswith(prefix):
+            try:
+                max_seq = max(max_seq, int(tid[len(prefix) :]))
+            except ValueError:
+                pass
+    return f"{prefix}{max_seq + 1:03d}"
+
+
+def make_todo(
+    todo_id: str,
+    description: str,
+    created_by: str,
+    priority: str = "medium",
+    assignee: str = "",
+    related_findings: list[str] | None = None,
+) -> dict:
+    """Build a TODO record — the single definition of the TODO schema."""
+    return {
+        "todo_id": todo_id,
+        "description": description,
+        "status": "open",
+        "priority": priority,
+        "assignee": assignee,
+        "related_findings": related_findings or [],
+        "created_by": created_by,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "notes": [],
+        "completed_at": None,
+    }
+
+
 def load_iocs(case_dir: Path) -> list[dict]:
     """Load IOC records from case root iocs.json."""
     iocs_file = case_dir / "iocs.json"
