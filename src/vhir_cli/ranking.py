@@ -106,6 +106,22 @@ _IOC_TYPE_POINTS = {
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
+
+def _term_matcher(terms: tuple[str, ...]) -> re.Pattern[str]:
+    """Whole-word matcher for a term list.
+
+    Substring matching is wrong here: "c2" occurs inside roughly every SHA-256
+    an observation might quote, which would tag any finding citing a hash as
+    command-and-control.
+    """
+    joined = "|".join(re.escape(t) for t in terms)
+    return re.compile(rf"\b(?:{joined})\b", re.IGNORECASE)
+
+
+_CAPABILITY_MATCHERS: dict[str, re.Pattern[str]] = {
+    name: _term_matcher(terms) for name, terms in _CAPABILITY_TERMS.items()
+}
+
 #: Signal weights. Exposed so an examiner can re-weight without re-deriving
 #: anything: the signals are stored per finding in the RankedFinding, so
 #: changing a weight re-sorts without recomputing the evidence.
@@ -136,9 +152,7 @@ def capability_signal(item: dict) -> tuple[float, list[str]]:
     """Fraction of capability categories the finding's text evidences."""
     text = _text_of(item)
     hit = [
-        name
-        for name, terms in _CAPABILITY_TERMS.items()
-        if any(t in text for t in terms)
+        name for name, matcher in _CAPABILITY_MATCHERS.items() if matcher.search(text)
     ]
     return len(hit) / len(_CAPABILITY_TERMS), sorted(hit)
 

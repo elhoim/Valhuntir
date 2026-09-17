@@ -157,3 +157,16 @@ def test_score_finding_exposes_breakdown():
 
 def test_empty_input():
     assert rank_findings([]) == []
+
+
+def test_capability_terms_match_whole_words_only():
+    # "c2" occurs inside most SHA-256 hex strings; substring matching tagged
+    # any finding quoting a hash as command-and-control.
+    digest = "a3c2ff" + "0" * 58
+    _, hits = capability_signal({"observation": f"file hash {digest}"})
+    assert "command_and_control" not in hits
+
+
+def test_real_c2_reference_still_detected():
+    _, hits = capability_signal({"observation": "beacon to C2 server"})
+    assert "command_and_control" in hits
