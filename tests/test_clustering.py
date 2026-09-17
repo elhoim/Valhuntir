@@ -130,3 +130,28 @@ def test_cluster_representative_is_first_member():
     c = Cluster(template="t", members=[{"id": "A"}, {"id": "B"}])
     assert c.representative["id"] == "A"
     assert c.size == 2
+
+
+def test_different_cves_do_not_merge():
+    # CVE-2024-1234 would otherwise normalise to "<HOST>-<N>": the host-label
+    # rule eats "CVE-2024" and the integer rule eats the rest.
+    a = _finding("F-1", "Exploited CVE-2024-1234 remotely", title="Exploit")
+    b = _finding("F-2", "Exploited CVE-2021-44228 remotely", title="Exploit")
+    assert len(cluster_findings([a, b])) == 2
+
+
+def test_different_mitre_subtechniques_do_not_merge():
+    a = _finding("F-1", "Technique T1003.001 observed", title="Technique")
+    b = _finding("F-2", "Technique T1003.002 observed", title="Technique")
+    assert len(cluster_findings([a, b])) == 2
+
+
+def test_same_cve_across_hosts_still_merges():
+    a = _finding("F-1", "Exploited CVE-2024-1234 on WIN-AAA11")
+    b = _finding("F-2", "Exploited CVE-2024-1234 on WIN-BBB22")
+    assert len(cluster_findings([a, b])) == 1
+
+
+def test_normalise_preserves_identifiers():
+    assert "cve_2024_1234" in normalise("Exploited CVE-2024-1234")
+    assert "t1003_001" in normalise("Technique T1003.001")

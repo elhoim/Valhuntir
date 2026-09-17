@@ -29,7 +29,14 @@ from dataclasses import dataclass, field
 # Substitutions are applied in order; earlier ones win. Each replaces a span
 # that legitimately differs between two reports of the same activity.
 _NORMALISERS: tuple[tuple[re.Pattern[str], str], ...] = (
-    # Hashes first: a 32/40/64-hex run must not be nibbled by the number rule.
+    # Identifiers that MUST survive normalisation, folded to \w-only tokens so
+    # the host-label and bare-integer rules below cannot reach into them. Two
+    # findings that differ only in which CVE was exploited, or in the MITRE
+    # sub-technique observed, are different findings and must not merge.
+    (re.compile(r"(?i)\bCVE-(\d{4})-(\d{4,7})\b"), r"cve_\1_\2"),
+    (re.compile(r"\bT(\d{4})\.(\d{3})\b"), r"t\1_\2"),
+    (re.compile(r"\bT(\d{4})\b"), r"t\1"),
+    # Hashes next: a 32/40/64-hex run must not be nibbled by the number rule.
     (re.compile(r"\b[a-fA-F0-9]{64}\b"), "<SHA256>"),
     (re.compile(r"(?<![a-fA-F0-9])[a-fA-F0-9]{40}(?![a-fA-F0-9])"), "<SHA1>"),
     (re.compile(r"(?<![a-fA-F0-9])[a-fA-F0-9]{32}(?![a-fA-F0-9])"), "<MD5>"),
